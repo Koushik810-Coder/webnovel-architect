@@ -1,0 +1,27 @@
+webnovel_architect/
+│
+├── app/
+│   ├── api/
+│   │   ├── chapters.py
+│   │   ├── characters.py
+│   │   └── wiki.py
+│   │
+│   ├── core/
+│   │   ├── models/
+│   │   │   ├── character_runtime.py
+│   │   │   ├── character_wiki.py
+│   │   │   └── chapter.py
+│   │   │
+│   │   ├── graduation.py
+│   │   └── ids.py
+│   │
+│   ├── services/
+│   │   ├── ingest.py
+│   │   └── analysis_stub.py
+│   │
+│   └── main.py
+│
+├── storage/
+│   └── data.json
+│
+└── requirements.txt
