@@ -2,6 +2,11 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 class CharacterWiki(BaseModel):
+    """
+    Reader-Facing Canon Data.
+    Stored in Markdown files. Editable by humans.
+    Contains "Lore" (Appearance, Role, Backstory).
+    """
     character_id: str
 
     display_name: str

@@ -10,4 +10,12 @@ class ChapterCreateRequest(BaseModel):
 
 @router.post("/")
 def create_chapter(payload: ChapterCreateRequest):
+    """
+    Ingests a new chapter. 
+    Triggers the Story Intelligence Pipeline:
+    - Extracts characters/dialogue.
+    - Updates character confidence scores.
+    - Creates/Updates Wiki entries.
+    - Performs Voice Graduation checks.
+    """
     return ingest_chapter(payload.title, payload.text)

@@ -11,6 +11,10 @@ class CharacterCreateRequest(BaseModel):
 
 @router.post("/")
 def create(payload: CharacterCreateRequest):
+    """
+    Manually creates a character.
+    Useful for defining Protagonists before the first chapter is even written.
+    """
     return create_character(
         name=payload.name,
         short_description=payload.short_description,

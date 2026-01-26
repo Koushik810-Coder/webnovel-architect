@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Virtual environment
+# Virtual environment   
 venv/
 
 # Editor / OS
@@ -13,5 +13,14 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Runtime / local data
+# Runtime / local data  
 storage/
+
+# Documentation to exclude
+mentor_pitch.md
+zero_review_doc.md
+low_resource_alternatives.md
+project_state_report.md
+research.txt
+result.txt
+stucture.txt
