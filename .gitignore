@@ -31,6 +31,9 @@ stucture.txt
 _temp_voxnovel/
 output/
 
+# Sensitive
+.env
+
 # Local Runtime Data
 story_graph.json
 voices.json
