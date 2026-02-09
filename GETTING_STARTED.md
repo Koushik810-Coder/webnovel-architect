@@ -30,18 +30,19 @@ pip install -r requirements.txt
 ## 2. Running the System
 
 ### Option A: Run the Verification Script (Quick Start)
-To see the entire pipeline in action (Ingestion -> Extraction -> Graduation), run the included verification script:
+To see the entire Neuro-Symbolic pipeline in action (Ingestion -> Event Extraction -> Graph PageRank -> Graduation), run the modular verification script:
 
 ```bash
-python verify_system.py
+python verify_modular.py
 ```
 
 **What happens:**
-1.  Ingests Chapter 1 (detects Characters "Aria" and "Thorne").
-2.  Creates Wiki files in the `./wiki/` directory.
-3.  Simulates Chapter 2 updates.
-4.  **Graduates** "Aria" to Main Cast and assigns a Voice ID.
-5.  Prints Pass/Fail results.
+1.  Ingests Chapter 1 text.
+2.  **Extracts Events**: Identifies narrative events (e.g., "Aria confronts Thorne") and dialogue.
+3.  **Updates Graph**: Adds characters and events to the `story_graph.json`.
+4.  **Calculates Importance**: Runs **PageRank** to determine who matters.
+5.  **Graduates**: Assigns Voice IDs to characters with PageRank > 0.15.
+6.  **Synthesizes**: Generates audio using Kokoro (or EdgeTTS).
 
 ### Option B: Run the API Server
 To start the full backend server:
@@ -56,34 +57,29 @@ You can view the interactive Swagger docs at `http://localhost:8000/docs`.
 
 ## 3. How It Works: The Pipeline
 
-Webnovel Architect turns text into structured data using a 4-step pipeline:
+Webnovel Architect turns text into audio using a 4-step Neuro-Symbolic pipeline:
 
-### Step 1: Ingestion (`app/services/ingest.py`)
+### Step 1: Ingestion ("The Eye")
 -   **Input**: Raw text of a chapter.
--   **Action**: Calls the Extraction Service.
--   **Goal**: Don't just save text; understand it.
+-   **Action**: Calls LLM (via `adapters/llm_adapter.py`) to extract:
+    -   **Dialogue**: Spoken lines.
+    -   **Events**: Narrative beats (e.g., "Battle at the Gate").
 
-### Step 2: Extraction (`app/services/extraction.py`)
--   **Method**: Uses NLP (currently Regex heuristics) to identify:
-    -   **Entities** (Proper Nouns like "Aria").
-    -   **Dialogue** (Quotes).
+### Step 2: Story Intelligence ("The Brain")
+-   **Structure**: Directed Acyclic Graph (DAG) managed by `adapters/graph_adapter.py`.
+-   **Updates**:
+    -   Nodes: Characters, Events.
+    -   Edges: Character <-> Event (Participation).
+
+### Step 3: Graduation & Voice Locking ("The Director")
+-   **Method**: **PageRank Centrality**.
 -   **Logic**:
-    -   Filters out noise (mentions < threshold).
-    -   Counts dialogue lines per character.
+    -   If `PageRank(character) > 0.15`: Graduate to **Main Cast**.
+    -   Assign specific Voice ID (locked for consistency).
 
-### Step 3: Story Intelligence Update (`app/core/models/`)
--   **Runtime Model** (`character_runtime.py`):
-    -   Updates `confidence_score` (Presence + Dialogue).
-    -   Updates `mention_count`.
--   **Canon Model** (`character_wiki.py`):
-    -   If the character is new, a `.md` file is created in `wiki/`.
-    -   Humans can edit this file text; the system respects existing IDs.
-
-### Step 4: Graduation & Voice Locking (`app/core/graduation.py`)
--   **Trigger**: After every update, `check_graduation_status()` runs.
--   **Threshold**: If `confidence_score > 0.75` (Main Cast):
-    -   **Voice Assignment**: The system asks `VoiceAssignmentService` for a voice.
-    -   **Locking**: The `voice_id` is saved to Runtime. It will strictly be used for all future TTS generation.
+### Step 4: Synthesis ("The Voice")
+-   **Engine**: Selectable via `config.yaml` (Kokoro, EdgeTTS, etc.).
+-   **Output**: High-quality audio for Main Cast, fast audio for background.
 
 ## Directory Structure
 -   `app/api/`: FastAPI route handlers (endpoints).

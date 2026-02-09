@@ -24,3 +24,9 @@ project_state_report.md
 research.txt
 result.txt
 stucture.txt
+# Large Models
+*.onnx
+
+# Temp Data
+_temp_voxnovel/
+output/

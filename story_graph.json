@@ -1,0 +1,23 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "type": "event",
+      "description": "Aria confronts Thorne",
+      "id": "event_1770638609_0"
+    },
+    {
+      "type": "character",
+      "last_seen": "now",
+      "id": "Aria"
+    },
+    {
+      "type": "character",
+      "last_seen": "now",
+      "id": "Thorne"
+    }
+  ],
+  "edges": []
+}
