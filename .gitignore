@@ -30,3 +30,7 @@ stucture.txt
 # Temp Data
 _temp_voxnovel/
 output/
+
+# Local Runtime Data
+story_graph.json
+voices.json
