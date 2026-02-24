@@ -44,5 +44,6 @@ python verify_modular.py
 *   `Documents/`: Detailed research reports and roadmaps.
 
 ## Current Status
-*   **Phase**: Prototype / Architecture Migration
-*   **Latest Feature**: Graph-Based PageRank Graduation (Phase 3.2 Completed)
+*   **Phase**: Voice Management System Implemented (Phase 4 Completed)
+*   **Latest Feature**: VoiceRegistry, Deterministic Assignment, and Wiki Persistence
+*   **Next Milestone**: Advanced Audio Engine & Polish (Phase 5)

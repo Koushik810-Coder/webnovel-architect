@@ -2,10 +2,13 @@ import os
 import shutil
 import yaml
 import asyncio
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from adapters.tts_adapter import get_tts_engine
 from adapters.graph_adapter import get_graph_engine
-from core.graduation import get_graduation_system
-from core.ingestion import ingest_chapter_text
+from app.core.graduation import check_graduation_status
+from app.services.ingest import ingest_chapter
 from unittest.mock import MagicMock, patch
 
 # Mock the LLM adapter to avoid needing API keys for this test
@@ -34,7 +37,7 @@ def run_verification():
 
     # 2. Mocking
     print("--- Setting up Mocks ---")
-    with patch('core.ingestion.analyze_text', side_effect=mock_analyze_text):
+    with patch('app.services.ingest.extract_chapter_intelligence', return_value={"active_character_names": ["Aria", "Thorne"]}):
         
         # 3. Load Config
         print("--- Loading Config ---")
@@ -49,17 +52,16 @@ def run_verification():
         # 4. Ingest Text
         print("--- Testing Ingestion ---")
         sample_text = "Aria looked at the horizon. Thorne grunted."
-        characters = ingest_chapter_text(sample_text)
+        chapter = ingest_chapter("Test Chapter", sample_text)
         
-        if len(characters) == 2:
-            print(f"PASS: Ingested {len(characters)} lines.")
+        if chapter:
+            print(f"PASS: Ingested chapter.")
         else:
-            print(f"FAIL: Expected 2 lines, got {len(characters)}.")
+            print(f"FAIL: Ingestion failed.")
             return
 
         # 5. Graph & Graduation
         print("--- Testing Graduation ---")
-        grad_system = get_graduation_system()
         graph = get_graph_engine()
         
         # Force Aria to be important

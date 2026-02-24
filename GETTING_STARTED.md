@@ -41,7 +41,7 @@ python verify_modular.py
 2.  **Extracts Events**: Identifies narrative events (e.g., "Aria confronts Thorne") and dialogue.
 3.  **Updates Graph**: Adds characters and events to the `story_graph.json`.
 4.  **Calculates Importance**: Runs **PageRank** to determine who matters.
-5.  **Graduates**: Assigns Voice IDs to characters with PageRank > 0.15.
+5.  **Graduates**: Assigns Voice IDs to characters with PageRank > 0.15 using the new `VoiceRegistry`.
 6.  **Synthesizes**: Generates audio using Kokoro (or EdgeTTS).
 
 ### Option B: Run the API Server
@@ -82,7 +82,8 @@ Webnovel Architect turns text into audio using a 4-step Neuro-Symbolic pipeline:
 -   **Output**: High-quality audio for Main Cast, fast audio for background.
 
 ## Directory Structure
+-   `adapters/`: Interface layers for LLM, Graph, and TTS.
+-   `core/`: Core business logic (Ingestion, Graduation models).
 -   `app/api/`: FastAPI route handlers (endpoints).
--   `app/core/`: Core business logic (Graduation, Models).
--   `app/services/`: "Heavy lifting" (Ingest, Extraction, Wiki IO).
--   `wiki/`: Generated markdown files for characters.
+-   `app/services/`: Services for ingestion, Wiki generation, and VoiceRegistry logic.
+-   `wiki/`: Generated markdown files for characters, now persisting voice assignments.

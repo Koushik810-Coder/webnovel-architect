@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from app.services.characters import CHARACTER_RUNTIME
 from app.core.graduation import evaluate_graduation, GraduationLevel
 
-from app.services.voice_casting import cast_voice
+from app.services.voice_assignment import assign_voice
 
 
 
@@ -27,6 +27,6 @@ def register_appearance(character_id: str, chapter_id: int, dialogue_lines: int 
 
     # Lock voice only once
     if graduation == GraduationLevel.MAIN_CAST and runtime.voice_id is None:
-        runtime.voice_id = cast_voice(runtime.vocal_traits)
+        runtime.voice_id = assign_voice(runtime.vocal_traits)
 
     return runtime

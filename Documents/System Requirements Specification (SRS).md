@@ -1,7 +1,7 @@
-
 **Project Title:** _Webnovel Architect — Neuro-Symbolic Story Intelligence System_  
 **Document Version:** 1.0  
-**Date:** 2026-02-09  
+**Date:** 2026-02-10  
+**Status:** Requirements Baseline (Partially Implemented)
 **Standard Reference:** Structured in alignment with IEEE-style SRS conventions.
 
 ---
@@ -15,9 +15,9 @@ This document specifies the functional and non-functional requirements for the W
 #### 1.2 Scope
 
 Webnovel Architect is a narrative analysis and knowledge construction platform that:
+**Current Implementation**
 
-- Ingests serialized fiction text
-    
+- Structured- Ingests serialized fiction text
 - Extracts entities and narrative events
     
 - Maintains a persistent dynamic event graph
@@ -180,6 +180,9 @@ The system shall allow retrieval of historical narrative context.
 
 **FR-9**  
 The system shall compute character importance using graph metrics.
+**Current Logic**
+- **PageRank Centrality (Implemented)**
+- Threshold-based voice assignment using `VoiceRegistry` (Implemented)
 
 **FR-10**  
 The system shall assign classification tiers (background/supporting/main).
@@ -196,10 +199,10 @@ The system shall update wiki content as new events are processed.
 
 ---
 
-#### 3.7 Audio Output (Optional)
+#### 3.7 Audio Output
 
 **FR-13**  
-The system shall generate speech output for selected characters.
+The system shall generate speech output for selected characters and map voices consistently using a centralized registry.
 
 ---
 

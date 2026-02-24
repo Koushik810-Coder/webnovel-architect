@@ -86,7 +86,8 @@ Knowledge Outputs ("Memory" + "Voice")
 
 **Current Implementation**
 
-- Regex + heuristic extraction
+- **LiteLLM** (Gemini Flash) based structured extraction.
+- Validated via `verify_modular.py`.
     
 
 **Target Implementation**
@@ -145,9 +146,9 @@ Event:
 
 **Technology Options**
 
-- KuzuDB (preferred for local research)
-    
-- Neo4j (alternative)
+- **NetworkX** (Current verified implementation)
+- KuzuDB (Target for >10k events)
+- Neo4j (Alternative for visualization)
     
 
 **Graph Model**
@@ -194,7 +195,8 @@ Event:
 
 **Current Logic**
 
-- Confidence score based on mention frequency
+- **PageRank Centrality** (Implemented in `core/graduation.py`).
+- Threshold-based Voice Locking (Implemented).
     
 
 **Target Logic**

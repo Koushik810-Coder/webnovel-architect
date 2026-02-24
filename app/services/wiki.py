@@ -35,6 +35,7 @@ def save_character_wiki(character: CharacterWiki):
 ## System Data
 - ID: `{character.character_id}`
 - Confidence: {character.confidence}
+- Voice: `{character.voice_id or 'Unassigned'}`
 """
     
     with open(filepath, "w") as f:

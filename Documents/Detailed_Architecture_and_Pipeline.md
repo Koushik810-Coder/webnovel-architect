@@ -1,8 +1,8 @@
 # Webnovel Architect: Detailed Architecture & User Pipeline
 
-**Version:** 1.0  
-**Date:** 2026-02-09  
-**Status:** Architecture Definition
+**Version:** 1.1  
+**Date:** 2026-02-24  
+**Status:** Knowledge Stabilization & Audio Integration (Phase 4 Current)
 
 ---
 
@@ -57,12 +57,12 @@ graph TD
 
     subgraph Providers ["Providers (External)"]
         direction TB
-        OpenAI["OpenAI /<br/>Groq API"]
+        OpenAI["Gemini /<br/>LiteLLM API"]
         LocalLLM["Local Ollama /<br/>Llamacpp"]
-        Piper["Piper TTS<br/>(Local)"]
-        StyleTTS["StyleTTS2<br/>(GPU)"]
-        Kuzu["KuzuDB<br/>(Embedded)"]
-        Neo4j["Neo4j<br/>(Server)"]
+        Piper["Kokoro ONNX<br/>(Local CPU)"]
+        StyleTTS["EdgeTTS<br/>(Cloud API)"]
+        Kuzu["NetworkX<br/>(JSON)"]
+        Neo4j["KuzuDB<br/>(Target)"]
     end
 
     Orchestrator --> SB
@@ -168,8 +168,8 @@ sequenceDiagram
 ### 4.1 Ingestion Engine ("The Eye")
 *   **Goal:** Turn unstructured text into structured data.
 *   **Laptop Mode:** Uses Regex and spaCy (runs on CPU).
-*   **Zero-GPU Mode:** Uses remote APIs (Groq/OpenAI) via Switchboard for high-accuracy extraction without local hardware.
-*   **Research Mode:** Uses local Llama-3 for maximum privacy and control.
+*   **Laptop/Zero-GPU Mode:** Uses **LiteLLM** (Gemini Flash) via `ingest_chapter_text` for high-accuracy extraction without local hardware.
+*   **Research Mode:** Uses local Llama-3 for maximum privacy and control (via adapter switch).
 
 ![Ingestion Visual: Digital eye scanning text](Pictures/Ingestion%20Visual.png)
 
@@ -177,8 +177,9 @@ sequenceDiagram
 
 ### 4.2 Dynamic Graph Runtime ("The Brain")
 *   **Goal:** Remember everything.
-*   **Tech:** KuzuDB (Embedded, default) or Neo4j (Server, visualization).
+*   **Tech:** **NetworkX** (Active Implementation) / KuzuDB (Target Scalability).
 *   **Data Model:** `(Character)-[PARTICIPATED_IN]->(Event)-[NEXT]->(Event)`.
+*   **Persistence:** JSON-based `story_graph.json` (Implemented).
 
 ![Dynamic Graph Runtime Visual](Pictures/Graph%20visual.png)
 
@@ -187,10 +188,9 @@ sequenceDiagram
 ### 4.3 Graduation System ("The Director")
 *   **Goal:** Resource allocation defined by narrative importance.
 *   **Algorithm:** 
-    *   *Background Characters* = No Voice (Text only).
-    *   *Supporting Characters* = Standard Voice (Piper/Edge-TTS).
-    *   *Main Cast* = High Quality Voice (StyleTTS2/XTTS).
-*   **Logic:** As a character's "Centrality" (connections) increases in the graph, they "Graduate" tiers.
+    *   *Background/Supporting Characters* = Standard Voice (Edge-TTS fallback).
+    *   *Main Cast* = High Quality Voice (Kokoro ONNX local).
+*   **Logic:** As a character's "Centrality" (via PageRank) increases in the graph, they "Graduate" above a static threshold (0.15) and receive premium voice assignment.
 
 
 
@@ -204,6 +204,6 @@ The system supports three distinct hardware profiles via the Switchboard.
 
 | Tier | Extraction Strategy | Runtime Memory | Audio Synthesis |
 | :--- | :--- | :--- | :--- |
-| **Research Lab**<br>*(High-End GPU)* | **xCore / Llama-3 (FP16)**<br>Local, high-precision extraction. | **Neo4j Enterprise**<br>Visual, server-based graph. | **StyleTTS2 / XTTS**<br>Studio-quality voice (requires VRAM). |
-| **Laptop**<br>*(Consumer CPU)* | **spaCy**<br>Fast, rule-based extraction. | **KuzuDB**<br>Embedded, local graph file. | **Piper (ONNX)**<br>Fast, medium-quality offline TTS. |
-| **Zero-GPU**<br>*(Cloud Dependent)* | **LLM API (OpenAI/Groq)**<br>Offloaded intelligence. | **KuzuDB**<br>Embedded, local graph file. | **Edge-TTS / API**<br>Cloud-based synthesis. |
+| **Research Lab**<br>*(High-End GPU)* | **xCore / Llama-3 (FP16)**<br>Local, high-precision extraction. | **Neo4j Enterprise / KuzuDB**<br>Visual, server-based graph. | **StyleTTS2 / XTTS**<br>Studio-quality voice (requires VRAM). |
+| **Laptop**<br>*(Consumer CPU)* | **LiteLLM / Gemini Flash**<br>High-accuracy text processing. | **NetworkX / JSON**<br>Lightweight memory graph. | **Kokoro (ONNX)**<br>High-quality offline CPU TTS. |
+| **Zero-GPU**<br>*(Cloud Dependent)* | **LLM API (OpenAI/Groq)**<br>Offloaded intelligence. | **NetworkX / JSON**<br>Lightweight memory graph. | **Edge-TTS / API**<br>Cloud-based basic synthesis. |

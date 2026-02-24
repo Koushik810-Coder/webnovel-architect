@@ -31,3 +31,4 @@ class CharacterWiki(BaseModel):
 
     last_updated_chapter: int
     confidence: float = 1.0
+    voice_id: Optional[str] = None

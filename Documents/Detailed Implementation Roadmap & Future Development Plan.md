@@ -23,9 +23,9 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ### 2. Development Phases
 
-#### Phase 3 — Neuro-Symbolic Runtime Migration (Critical)
+#### Phase 3 — Neuro-Symbolic Runtime Migration (COMPLETED)
 
-**Goal:** Replace count-based logic with an event-centric dynamic graph.
+**Goal:** Replace count-based logic with an event-centric dynamic graph. **(Status: Done)**
 
 **Primary Deliverables**
 
@@ -99,9 +99,9 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-#### Phase 3.1 — Zero-GPU Event Extraction Validation
+#### Phase 3.1 — Zero-GPU Event Extraction Validation (COMPLETED)
 
-**Goal:** Validate DyG-RAG feasibility without heavy compute. (COMPLETED)
+**Goal:** Validate DyG-RAG feasibility without heavy compute. **(Status: Done)**
 
 **Approach**
 
@@ -124,9 +124,9 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-#### Phase 3.2 — Graph-Based Character Importance
+#### Phase 3.2 — Graph-Based Character Importance (COMPLETED)
 
-**Goal:** Replace heuristic confidence scoring. (COMPLETED)
+**Goal:** Replace heuristic confidence scoring. **(Status: Done)**
 
 **Implementation**
 
@@ -161,7 +161,7 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-### 3. Phase 4 — Knowledge & Output Stabilization
+### 3. Phase 4 — Knowledge & Output Stabilization (CURRENT FOCUS)
 
 #### Wiki Generator Integration
 
@@ -183,7 +183,7 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-### 4. Phase 5 — Audio Layer Integration (Non-Core)
+### 4. Phase 5 — Audio Layer Integration (COMPLETED)
 
 **Goal:** Demonstrate multimodal narrative representation.
 

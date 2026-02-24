@@ -1,4 +1,4 @@
 # Switch engines here without touching code
-llm_model: "gemini/gemini-1.5-flash"  # Free Tier
+llm_model: "gemini/gemini-1.5-flash-latest"  # Free Tier
 tts_engine: "kokoro"                  # Local CPU
 fallback_tts: "edge"                  # Online Free

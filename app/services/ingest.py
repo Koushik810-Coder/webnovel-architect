@@ -79,6 +79,17 @@ def ingest_chapter(title: str, text: str) -> Chapter:
             did_graduate = check_graduation_status(char)
             if did_graduate:
                 print(f"[EVENT] Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
+                # Re-save wiki to persist the assigned voice
+                wiki_entry = CharacterWiki(
+                    character_id=char_id,
+                    display_name=name,
+                    short_description=f"Appeared in Chapter {char.first_seen_chapter}",
+                    first_appearance_chapter=char.first_seen_chapter,
+                    last_updated_chapter=_chapter_counter,
+                    confidence=char.confidence_score,
+                    voice_id=char.voice_id
+                )
+                save_character_wiki(wiki_entry)
             
             # Update local state
             _runtime_db[char_id] = char

@@ -24,6 +24,8 @@ project_state_report.md
 research.txt
 result.txt
 stucture.txt
+Documents/commits*.txt
+Documents/slides.txt
 # Large Models
 *.onnx
 
@@ -31,9 +33,16 @@ stucture.txt
 _temp_voxnovel/
 output/
 
+# Test Outputs
+*_output.txt
+out_*.txt
+test_integration.txt
+test_output.txt
+
 # Sensitive
 .env
 
 # Local Runtime Data
 story_graph.json
 voices.json
+wiki/
