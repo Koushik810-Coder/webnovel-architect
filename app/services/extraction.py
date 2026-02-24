@@ -24,11 +24,24 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
     # but for now we grab all Capitalized words and filter common stopwords later.
     words = re.findall(r'\b[A-Z][a-z]+\b', text)
     
-    # Filter out common starts of sentences (heuristic: assume most capitals are names if they appear repeatedly)
-    # In a real system, we'd use a POS tagger or LLM.
+    # Common words that frequently start sentences and shouldn't be characters
+    STOP_WORDS = {
+        "The", "A", "An", "And", "But", "Or", "For", "Nor", "So", "Yet",
+        "He", "She", "It", "They", "We", "You", "I", "His", "Her", "Their", "Our", "My", "Your",
+        "In", "On", "At", "To", "From", "By", "With", "About", "As", "Into", "Through", "During", 
+        "Before", "After", "Over", "Under", "Then", "Once", "When", "Where", "Why", "How", "If",
+        "Is", "Are", "Was", "Were", "Be", "Been", "Being",
+        "Has", "Have", "Had", "Having", "Do", "Does", "Did", "Doing",
+        "Will", "Would", "Shall", "Should", "Can", "Could", "May", "Might", "Must",
+        "This", "That", "These", "Those", "Which", "Who", "Whom", "Whose", "What",
+        "Beware", "Yes", "No", "Oh", "Ah", "Well", "Now", "Here", "There", "Some", "Any",
+        "All", "Many", "Few", "Most", "Only", "Same", "Too", "Very"
+    }
+    
     entity_counts = {}
     for w in words:
-        entity_counts[w] = entity_counts.get(w, 0) + 1
+        if w not in STOP_WORDS:
+            entity_counts[w] = entity_counts.get(w, 0) + 1
         
     potential_characters = [name for name, count in entity_counts.items() if count > 0] # Filter noise
     

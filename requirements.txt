@@ -6,3 +6,5 @@ edge-tts
 networkx
 pydantic
 pyyaml
+streamlit
+pyvis
