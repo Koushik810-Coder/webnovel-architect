@@ -2,6 +2,9 @@
 
 > **Turning evolving web novels into living audio dramas using Dynamic Graph RAG (DyG-RAG).**
 
+> [!IMPORTANT]
+> **What this is NOT:** This is not a collaborative writing app, word processor, or plotting software. It is an ingestion engine designed to parse existing webnovel chapters and automatically generate interactive wikis and living audio dramas.
+
 ## Overview
 
 The **Webnovel Architect** is a "Zero-GPU" modular system designed to process ongoing serial stories. Unlike traditional audiobooks which require a finished manuscript, this system reads along with the author, maintaining a persistent **"Story Intelligence"** layer that tracks character evolution and events.

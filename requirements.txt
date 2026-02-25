@@ -8,3 +8,5 @@ pydantic
 pyyaml
 streamlit
 pyvis
+beautifulsoup4
+requests

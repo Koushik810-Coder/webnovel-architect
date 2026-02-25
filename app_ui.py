@@ -46,10 +46,32 @@ if page == "Dashboard":
     
 elif page == "Ingestion Engine":
     st.header("Ingestion Engine")
-    st.markdown("Paste new chapter text here to parse Dialogue and Events into the Knowledge Graph.")
+    st.markdown("Paste new chapter text or fetch from a Royal Road URL to parse Dialogue and Events into the Knowledge Graph.")
     
-    chapter_title = st.text_input("Chapter Title", placeholder="e.g., Chapter 1: The Beginning")
-    chapter_text = st.text_area("Chapter Text", height=300)
+    st.subheader("Fetch from URL (Optional)")
+    with st.form("fetch_url_form"):
+        url_input = st.text_input("Royal Road Chapter URL", placeholder="https://www.royalroad.com/fiction/.../chapter/...")
+        fetch_submit = st.form_submit_button("Fetch Content")
+        
+        if fetch_submit and url_input:
+            with st.spinner("Fetching chapter from Royal Road..."):
+                try:
+                    from app.services.royal_road_scraper import scrape_royal_road
+                    scraped_data = scrape_royal_road(url_input)
+                    st.session_state['fetched_title'] = scraped_data['title']
+                    st.session_state['fetched_text'] = scraped_data['text']
+                    st.success(f"Successfully fetched: {scraped_data['title']}")
+                except Exception as e:
+                    st.error(f"Failed to fetch from URL: {str(e)}")
+                    
+    st.divider()
+    
+    # Pre-fill with fetched data if available
+    default_title = st.session_state.get('fetched_title', "")
+    default_text = st.session_state.get('fetched_text', "")
+    
+    chapter_title = st.text_input("Chapter Title", value=default_title, placeholder="e.g., Chapter 1: The Beginning")
+    chapter_text = st.text_area("Chapter Text", value=default_text, height=300)
     
     if st.button("Process Chapter", type="primary"):
         if not chapter_title or not chapter_text:
@@ -86,8 +108,19 @@ elif page == "Wiki Memory":
             st.info("No characters in Wiki yet. Process some chapters first!")
         else:
             selected_file = st.selectbox("Select Character", files)
-            with open(os.path.join(wiki_dir, selected_file), "r") as f:
+            with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
                 content = f.read()
+                
+            col1, col2 = st.columns([8, 2])
+            with col2:
+                st.download_button(
+                    label="📥 Export Wiki Entry",
+                    data=content,
+                    file_name=selected_file,
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+                
             st.markdown("---")
             st.markdown(content)
     else:
