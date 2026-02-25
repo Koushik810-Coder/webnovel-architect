@@ -47,3 +47,7 @@ python verify_modular.py
 *   **Phase**: Voice Management System Implemented (Phase 4 Completed)
 *   **Latest Feature**: VoiceRegistry, Deterministic Assignment, and Wiki Persistence
 *   **Next Milestone**: Advanced Audio Engine & Polish (Phase 5)
+*   **Future Goal**: DyG-RAG based conversational chatbot for interacting with the story world
+
+## Contributing
+Please note that this is primarily a research and personal project. **We are not accepting exterior contributions lightly at this time.** If you have a major feature proposal or bug fix, please open an issue first to discuss it before submitting a pull request. Forking the project for your own experimentation is highly encouraged!

@@ -314,6 +314,8 @@ The project is publication-ready when:
     
 - Author-assist editing tools
     
+- DyG-RAG based conversational chatbot for interacting with the story world
+    
 
 ---
 

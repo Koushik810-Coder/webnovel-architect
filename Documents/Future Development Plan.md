@@ -114,3 +114,4 @@ Sprint 5: Full Audio     →  High effort, showcase deliverable
 - **Epub/PDF Reader**: Direct ingestion from `.epub` files instead of manual paste
 - **Web Reader Integration**: Embed character cards and audio in a reader experience
 - **Multi-Language Support**: Swap NER and TTS models per locale
+- **DyG-RAG Chatbot**: Interactive conversational agent using Dynamic Graph RAG to query and interact with the novel's universe and events
