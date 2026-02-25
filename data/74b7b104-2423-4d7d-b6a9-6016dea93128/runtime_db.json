@@ -1,0 +1,49 @@
+{
+    "chapter_counter": 1,
+    "characters": {
+        "randidly": {
+            "character_id": "randidly",
+            "confidence_score": 0.1,
+            "dialogue_count": 0,
+            "mention_count": 1,
+            "network_centrality": 0.0,
+            "vocal_traits": {},
+            "voice_id": null,
+            "first_seen_chapter": 1,
+            "last_seen_chapter": 1
+        },
+        "ghosthound": {
+            "character_id": "ghosthound",
+            "confidence_score": 0.1,
+            "dialogue_count": 0,
+            "mention_count": 1,
+            "network_centrality": 0.0,
+            "vocal_traits": {},
+            "voice_id": null,
+            "first_seen_chapter": 1,
+            "last_seen_chapter": 1
+        },
+        "system": {
+            "character_id": "system",
+            "confidence_score": 0.1,
+            "dialogue_count": 0,
+            "mention_count": 1,
+            "network_centrality": 0.0,
+            "vocal_traits": {},
+            "voice_id": null,
+            "first_seen_chapter": 1,
+            "last_seen_chapter": 1
+        },
+        "rank": {
+            "character_id": "rank",
+            "confidence_score": 0.1,
+            "dialogue_count": 0,
+            "mention_count": 1,
+            "network_centrality": 0.0,
+            "vocal_traits": {},
+            "voice_id": null,
+            "first_seen_chapter": 1,
+            "last_seen_chapter": 1
+        }
+    }
+}

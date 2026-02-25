@@ -3,9 +3,16 @@ import json
 import os
 
 class GraphProvider:
-    def __init__(self):
+    def __init__(self, story_uuid: str):
+        self.story_uuid = story_uuid
         self.graph = nx.DiGraph()
-        self.save_path = "story_graph.json"
+        
+        # Ensure directory exists before setting save path
+        from app.core.story_manager import StoryManager
+        story_dir = os.path.join(StoryManager.DATA_DIR, story_uuid)
+        os.makedirs(story_dir, exist_ok=True)
+        
+        self.save_path = os.path.join(story_dir, "story_graph.json")
         self.load_graph()
 
     def add_character(self, name: str, attributes: dict):
@@ -52,11 +59,11 @@ class GraphProvider:
                 data = json.load(f)
             self.graph = nx.node_link_graph(data)
 
-# Factory equivalent (singleton for now)
-_graph_instance = None
+# Instance mapping to preserve state across multiple stories simultaneously in memory
+_graph_instances = {}
 
-def get_graph_engine():
-    global _graph_instance
-    if _graph_instance is None:
-        _graph_instance = GraphProvider()
-    return _graph_instance
+def get_graph_engine(story_uuid: str):
+    global _graph_instances
+    if story_uuid not in _graph_instances:
+        _graph_instances[story_uuid] = GraphProvider(story_uuid)
+    return _graph_instances[story_uuid]

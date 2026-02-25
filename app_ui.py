@@ -10,9 +10,70 @@ st.set_page_config(
 )
 
 # --- Sidebar Navigation ---
+from app.core.story_manager import StoryManager
+
+# Initialize StoryManager State
+if 'active_story_uuid' not in st.session_state:
+    st.session_state['active_story_uuid'] = None
+
 with st.sidebar:
     st.title("📖 Webnovel Architect")
     st.caption("Neuro-Symbolic Story Intelligence")
+    st.divider()
+    
+    # Story Management UI
+    st.subheader("📚 Story Manager")
+    stories = StoryManager.list_stories()
+    
+    if not stories:
+        st.warning("No stories found. Create one!")
+        
+    story_options = {s['uuid']: s['name'] for s in stories}
+    
+    # Selection
+    if stories:
+        # Default to the first story if none selected or if selected was deleted
+        if st.session_state['active_story_uuid'] not in story_options:
+            st.session_state['active_story_uuid'] = stories[0]['uuid']
+            
+        selected_uuid = st.selectbox(
+            "Active Story",
+            options=list(story_options.keys()),
+            format_func=lambda x: story_options[x],
+            index=list(story_options.keys()).index(st.session_state['active_story_uuid']) if st.session_state['active_story_uuid'] in story_options else 0
+        )
+        st.session_state['active_story_uuid'] = selected_uuid
+    
+    # Create New Story
+    with st.expander("➕ New Story"):
+        with st.form("new_story_form"):
+            new_name = st.text_input("Story Name")
+            if st.form_submit_button("Create") and new_name:
+                new_uuid = StoryManager.create_story(new_name)
+                st.session_state['active_story_uuid'] = new_uuid
+                st.rerun()
+                
+    # Manage Current Story
+    if st.session_state['active_story_uuid']:
+        with st.expander("⚙️ Manage Story"):
+            cur_uuid = st.session_state['active_story_uuid']
+            
+            with st.form("rename_form"):
+                rename_name = st.text_input("New Name", value=story_options.get(cur_uuid, ""))
+                if st.form_submit_button("Rename") and rename_name:
+                    StoryManager.rename_story(cur_uuid, rename_name)
+                    st.rerun()
+                    
+            if st.button("Copy Story", use_container_width=True):
+                new_uuid = StoryManager.duplicate_story(cur_uuid)
+                st.session_state['active_story_uuid'] = new_uuid
+                st.rerun()
+                
+            if st.button("🗑️ Delete Story", type="primary", use_container_width=True):
+                StoryManager.soft_delete_story(cur_uuid)
+                st.session_state['active_story_uuid'] = None
+                st.rerun()
+
     st.divider()
     
     # Navigation Radio
@@ -23,23 +84,31 @@ with st.sidebar:
     
     st.divider()
     st.info("System Status: **Online**")
+    
+# Stop execution if no story is active
+if not st.session_state['active_story_uuid']:
+    st.info("👈 Please create or select a story from the sidebar to continue.")
+    st.stop()
+    
+active_story_uuid = st.session_state['active_story_uuid']
 
 # --- Page Router ---
 if page == "Dashboard":
     st.header("Dashboard Metrics")
     st.markdown("Welcome to Webnovel Architect. Use the sidebar to navigate.")
     
-    # Load config and runtime DB
-    from app.services.ingest import _runtime_db, _chapter_counter
     import yaml
+    from app.services.ingest import load_runtime
     
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
         
+    chapter_counter, runtime_db = load_runtime(active_story_uuid)
+        
     col1, col2, col3 = st.columns(3)
-    col1.metric("Processed Chapters", _chapter_counter)
-    col2.metric("Discovered Characters", len(_runtime_db))
-    col3.metric("Graduated Characters", len([c for c in _runtime_db.values() if c.voice_id is not None]))
+    col1.metric("Processed Chapters", chapter_counter)
+    col2.metric("Discovered Characters", len(runtime_db))
+    col3.metric("Graduated Characters", len([c for c in runtime_db.values() if c.voice_id is not None]))
     
     st.subheader("System Configuration")
     st.code(f"LLM Engine: {config.get('llm_model')}\nMain TTS: {config.get('tts_engine')}\nFallback TTS: {config.get('fallback_tts')}", language="yaml")
@@ -80,7 +149,7 @@ elif page == "Ingestion Engine":
             with st.spinner("Processing semantics and extracting events..."):
                 from app.services.ingest import ingest_chapter
                 try:
-                    chapter = ingest_chapter(chapter_title, chapter_text)
+                    chapter = ingest_chapter(active_story_uuid, chapter_title, chapter_text)
                     st.success(f"Successfully processed {chapter_title}!")
                     
                     # Display Extracted Events
@@ -88,8 +157,6 @@ elif page == "Ingestion Engine":
                     st.json({
                         "id": chapter.id,
                         "title": chapter.title,
-                        # Assuming chapter model doesn't store the raw response, we just show success.
-                        # Real app would display the DyG-RAG delta here.
                         "status": "Graph Updated"
                     })
                 except Exception as e:
@@ -99,8 +166,9 @@ elif page == "Wiki Memory":
     st.header("Character Wiki (Memory)")
     st.markdown("Browse the generated characters and their canonical status.")
     
+    from app.services.wiki import get_wiki_dir
     import os
-    wiki_dir = "wiki"
+    wiki_dir = get_wiki_dir(active_story_uuid)
     
     if os.path.exists(wiki_dir):
         files = [f for f in os.listdir(wiki_dir) if f.endswith('.md')]
@@ -130,14 +198,16 @@ elif page == "Audio Hub":
     st.header("Audio Hub")
     st.markdown("Generate and test audio for graduated characters.")
     
-    from app.services.ingest import _runtime_db
+    from app.services.ingest import load_runtime
     import yaml
     import asyncio
+    
+    _, runtime_db = load_runtime(active_story_uuid)
     
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
         
-    graduated_chars = [c for c in _runtime_db.values() if c.voice_id is not None]
+    graduated_chars = [c for c in runtime_db.values() if c.voice_id is not None]
     
     if not graduated_chars:
         st.info("No characters have graduated to the Main Cast yet. Process more chapters to trigger graduation!")
@@ -158,8 +228,10 @@ elif page == "Audio Hub":
                 voice = char.voice_id
                 
                 import os
-                if not os.path.exists("output"): os.makedirs("output")
-                filename = f"output/ui_test_{char.character_id}.wav"
+                from app.core.story_manager import StoryManager
+                output_dir = os.path.join(StoryManager.DATA_DIR, active_story_uuid, "generated_audio")
+                if not os.path.exists(output_dir): os.makedirs(output_dir)
+                filename = os.path.join(output_dir, f"ui_test_{char.character_id}.wav")
                 
                 try:
                     if asyncio.iscoroutinefunction(tts.generate_audio):
@@ -180,7 +252,7 @@ elif page == "Knowledge Graph":
     import streamlit.components.v1 as components
     import tempfile
     
-    graph_engine = get_graph_engine()
+    graph_engine = get_graph_engine(active_story_uuid)
     G = graph_engine.graph
     
     if len(G.nodes) == 0:
