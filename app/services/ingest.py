@@ -90,6 +90,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "spa
         
     active_names = intelligence.get("active_character_names", [])
     
+    # 2.5 Resolve Aliases
+    from app.services.alias_resolver import resolve_aliases
+    active_names = resolve_aliases(active_names)
+    
     # 3. Graph Updates
     from adapters.graph_adapter import get_graph_engine
     graph = get_graph_engine(story_uuid)

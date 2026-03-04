@@ -59,6 +59,35 @@ class GraphProvider:
             print(f"Temporal PageRank failed: {e}, falling back to degree.")
             return float(self.graph.degree(name))
 
+    def merge_characters(self, source_id: str, target_id: str):
+        """
+        Retroactively merges an alias (source) into a canonical character (target).
+        Transfers all edges (event participations) and updates attributes.
+        """
+        if not self.graph.has_node(source_id) or not self.graph.has_node(target_id):
+            return
+            
+        # Target inherits any "newer" last_seen_chapter from the source
+        src_data = self.graph.nodes[source_id]
+        tgt_data = self.graph.nodes[target_id]
+        
+        if "last_seen_chapter" in src_data and "last_seen_chapter" in tgt_data:
+            tgt_data["last_seen_chapter"] = max(src_data["last_seen_chapter"], tgt_data["last_seen_chapter"])
+
+        # Transfer Out-Edges (Character -> Event relationship: "participant")
+        for u, v, data in list(self.graph.out_edges(source_id, data=True)):
+            if not self.graph.has_edge(target_id, v):
+                self.graph.add_edge(target_id, v, **data)
+
+        # Transfer In-Edges (Event -> Character relationship: "featured")
+        for u, v, data in list(self.graph.in_edges(source_id, data=True)):
+            if not self.graph.has_edge(u, target_id):
+                self.graph.add_edge(u, target_id, **data)
+
+        # Remove the obsolete alias node
+        self.graph.remove_node(source_id)
+        self.save_graph()
+
     def save_graph(self):
         """Persists graph to JSON (Simple backup)."""
         data = nx.node_link_data(self.graph)
