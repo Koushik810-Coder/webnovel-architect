@@ -65,7 +65,7 @@ def save_chapter(story_uuid: str, chapter: Chapter):
     with open(os.path.join(chapter_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
-def ingest_chapter(story_uuid: str, title: str, text: str) -> Chapter:
+def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "spacy", decay_rate: float = 0.05) -> Chapter:
     chapter_counter, runtime_db = load_runtime(story_uuid)
     
     chapter_counter += 1
@@ -82,12 +82,35 @@ def ingest_chapter(story_uuid: str, title: str, text: str) -> Chapter:
     save_chapter(story_uuid, chapter)
     
     # 2. Extract Intelligence
-    intelligence = extract_chapter_intelligence(text)
+    if extractor == "llm":
+        from app.services.extraction import extract_chapter_intelligence_llm
+        intelligence = extract_chapter_intelligence_llm(text)
+    else:
+        intelligence = extract_chapter_intelligence(text)
+        
     active_names = intelligence.get("active_character_names", [])
     
-    # 3. Update Story Engine State
+    # 3. Graph Updates
+    from adapters.graph_adapter import get_graph_engine
+    graph = get_graph_engine(story_uuid)
+    
+    # Add characters to graph
     for name in active_names:
         char_id = normalize_id(name)
+        graph.add_character(char_id, {"display_name": name, "last_seen_chapter": chapter_counter})
+        
+    # Create an event to represent the occurrences in this chapter
+    if active_names:
+        event_id = f"chapter_{chapter_counter}_event"
+        description = f"Events of Chapter {chapter_counter}"
+        graph.add_event(event_id, description, [normalize_id(n) for n in active_names], chapter_id=chapter_counter)
+    
+    # 4. Update Story Engine State (Runtime tracking)
+    for name in active_names:
+        char_id = normalize_id(name)
+        
+        # Calculate proper graph-based Centrality (PageRank with Temporal Decay)
+        new_score = graph.get_character_importance(char_id, current_chapter=chapter_counter, decay_rate=decay_rate)
         
         # Runtime Update
         if char_id not in runtime_db:
@@ -96,7 +119,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str) -> Chapter:
                 character_id=char_id,
                 first_seen_chapter=chapter_counter,
                 last_seen_chapter=chapter_counter,
-                confidence_score=0.1, 
+                confidence_score=new_score, 
                 mention_count=1
             )
             
@@ -106,7 +129,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str) -> Chapter:
                 display_name=name,
                 short_description=f"Appeared in Chapter {chapter_counter}",
                 first_appearance_chapter=chapter_counter,
-                last_updated_chapter=chapter_counter
+                last_updated_chapter=chapter_counter,
+                confidence=new_score
             )
             save_character_wiki(story_uuid, wiki_entry)
             
@@ -115,8 +139,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str) -> Chapter:
             char = runtime_db[char_id]
             char.last_seen_chapter = chapter_counter
             char.mention_count += 1
-            
-            char.confidence_score += 0.05 
+            char.confidence_score = new_score
             
             # Graduation Check & Voice Locking
             did_graduate = check_graduation_status(char)

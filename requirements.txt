@@ -10,3 +10,4 @@ streamlit
 pyvis
 beautifulsoup4
 requests
+spacy

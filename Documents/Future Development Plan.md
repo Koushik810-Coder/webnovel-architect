@@ -28,10 +28,12 @@
 
 **Tasks**:
 - Add `spacy` and `en_core_web_sm` to dependencies
-- Rewrite `app/services/extraction.py` to use `doc.ents` filtered to `PERSON` label
-- Handle multi-word spans (e.g., "Lord Stark", "Old Man")
+- Rewrite `app/services/extraction.py` to use a Hybrid NER pipeline (`PERSON` + `EntityRuler`)
+- **Name Normalization**: Remove possessives (`'s`) and generic titles (`Lord`, `Master`) directly post-extraction
+- **Worldbuilding Expansion**: Configure `EntityRuler` to aggressively extract custom fictional concepts (`RANK`, `MAGIC_SYSTEM`, `FACTION`) alongside standard `ORG` and `GPE`.
+- **Stop-Entities Filter**: Implement a blacklist to drop common spaCy false positives ("first day", "last night").
 
-**Effort**: Low | **Impact**: High
+**Effort**: Low-Medium | **Impact**: Very High
 
 ---
 
@@ -57,7 +59,8 @@
 **Why**: A serialized novel uses many referring expressions for the same person. Without this, each alias spawns a separate wiki entry.
 
 **Tasks**:
-- Implement fuzzy string matching between candidate names
+- **Coreference Resolution**: Integrate `NeuralCoref` or `BookNLP` to map pronouns ("He", "She") to canonical entities.
+- Implement fuzzy string matching between candidate names (e.g., "Gavle Stormborn" -> "Gavle")
 - Use a lightweight sentence embedding model (`sentence-transformers` CPU tier) for semantic deduplication
 - Surface merge suggestions in the UI for author review
 

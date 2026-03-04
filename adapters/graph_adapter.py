@@ -20,30 +20,43 @@ class GraphProvider:
         self.graph.add_node(name, type="character", **attributes)
         self.save_graph()
 
-    def add_event(self, event_id: str, description: str, involved_entities: list):
+    def add_event(self, event_id: str, description: str, involved_entities: list, chapter_id: int = 0):
         """Adds an event node and edges to involved entities."""
-        self.graph.add_node(event_id, type="event", description=description)
+        self.graph.add_node(event_id, type="event", description=description, chapter_id=chapter_id)
         for entity in involved_entities:
             if self.graph.has_node(entity):
-                self.graph.add_edge(entity, event_id, relation="participant")
-                self.graph.add_edge(event_id, entity, relation="featured")
+                self.graph.add_edge(entity, event_id, relation="participant", chapter_id=chapter_id)
+                self.graph.add_edge(event_id, entity, relation="featured", chapter_id=chapter_id)
         self.save_graph()
 
-    def get_character_importance(self, name: str) -> float:
+    def get_character_importance(self, name: str, current_chapter: int = 0, decay_rate: float = 0.05) -> float:
         """
-        Calculates importance based on PageRank or Degree Centrality.
+        Calculates importance based on PageRank.
+        Applies a temporal decay based on how old the connection is relative to the current_chapter.
         """
         if not self.graph.has_node(name):
             return 0.0
         
         try:
-            # Calculate PageRank for the entire graph
-            # Note: PageRank requires a directed graph (which we have)
-            # alpha=0.85 is standard damping factor
+            # Calculate base PageRank
             pagerank_scores = nx.pagerank(self.graph, alpha=0.85)
-            return pagerank_scores.get(name, 0.0)
+            base_score = float(pagerank_scores.get(name, 0.0))
+            
+            # Find the most recent event for this character to apply decay
+            max_chapter = 0
+            for u, v, data in self.graph.out_edges(name, data=True):
+                edge_chap = data.get("chapter_id", 0)
+                max_chapter = max(max_chapter, edge_chap)
+                
+            # Compute multiplier
+            if current_chapter > 0 and max_chapter > 0:
+                age = max(0, current_chapter - max_chapter)
+                temporal_multiplier = (1.0 - decay_rate) ** age
+                return base_score * temporal_multiplier
+                
+            return base_score
         except Exception as e:
-            print(f"PageRank failed: {e}, falling back to degree.")
+            print(f"Temporal PageRank failed: {e}, falling back to degree.")
             return float(self.graph.degree(name))
 
     def save_graph(self):

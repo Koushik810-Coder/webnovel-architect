@@ -25,6 +25,10 @@ It uses a **Neuro-Symbolic** approach:
 ### Prerequisites
 *   Python 3.9+
 *   `pip install -r requirements.txt`
+*   **Important**: You must download the spaCy model after installing dependencies:
+    ```bash
+    python -m spacy download en_core_web_sm
+    ```
 
 ### Quick Verification
 Run the verification script to test the entire pipeline (Ingestion -> Extraction -> Graph -> Graduation -> TTS):

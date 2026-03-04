@@ -1,6 +1,16 @@
 import streamlit as st
 import os
 
+# Load .env manually to ensure API keys are available
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(env_path):
+    with open(env_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, val = line.split('=', 1)
+                os.environ.setdefault(key.strip(), val.strip().strip('"\''))
+
 # --- Page Config ---
 st.set_page_config(
     page_title="Webnovel Architect",
@@ -142,14 +152,32 @@ elif page == "Ingestion Engine":
     chapter_title = st.text_input("Chapter Title", value=default_title, placeholder="e.g., Chapter 1: The Beginning")
     chapter_text = st.text_area("Chapter Text", value=default_text, height=300)
     
+    # Extractor Toggle
+    extractor_choice = st.radio(
+        "Character Extraction Method",
+        ["spaCy (Fast, Rule-based)", "LLM (Smart, Context-aware)"],
+        index=0,
+        horizontal=True
+    )
+    extractor_method = "llm" if "LLM" in extractor_choice else "spacy"
+    
+    decay_rate = st.slider(
+        "Temporal Decay Rate (Recency Weight)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.05,
+        help="Higher values make recent chapter appearances count much more than older ones for character importance.",
+        step=0.01
+    )
+    
     if st.button("Process Chapter", type="primary"):
         if not chapter_title or not chapter_text:
             st.error("Please provide both a title and chapter text.")
         else:
-            with st.spinner("Processing semantics and extracting events..."):
+            with st.spinner(f"Processing semantics and extracting events using {extractor_choice}..."):
                 from app.services.ingest import ingest_chapter
                 try:
-                    chapter = ingest_chapter(active_story_uuid, chapter_title, chapter_text)
+                    chapter = ingest_chapter(active_story_uuid, chapter_title, chapter_text, extractor=extractor_method, decay_rate=decay_rate)
                     st.success(f"Successfully processed {chapter_title}!")
                     
                     # Display Extracted Events
@@ -157,7 +185,8 @@ elif page == "Ingestion Engine":
                     st.json({
                         "id": chapter.id,
                         "title": chapter.title,
-                        "status": "Graph Updated"
+                        "status": "Graph Updated",
+                        "extractor_used": extractor_method
                     })
                 except Exception as e:
                     st.error(f"Error processing chapter: {str(e)}")
