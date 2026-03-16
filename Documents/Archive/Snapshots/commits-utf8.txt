@@ -1,6 +1,0 @@
-﻿2026-02-09 | f6ec841 | Add updated documentation and architecture diagrams | Koushik810-Coder
-2026-02-09 | 9c5dc00 | chore: Secure .env and update gitignore | Koushik810-Coder
-2026-02-09 | 4303eae | chore: Consolidate documentation and remove legacy files | Koushik810-Coder
-2026-02-09 | a9a11a4 | feat: Implement Event Extraction, Cleanup, and Documentation (excluding large model) | Koushik810-Coder
-2026-01-26 | 7334c5e | Cleanup: Ignore documentation and update project structure | Koushik810-Coder
-2026-01-10 | 3e83fc1 | Initial architecture: wiki, runtime, graduation, narration, audio pipeline | Koushik810-Coder

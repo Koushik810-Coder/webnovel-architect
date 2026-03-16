@@ -71,3 +71,31 @@ result.json
 
 # Dataset (local gold standard)
 dataset/
+
+# Review & Presentation Assets (Local Only)
+Documents/Review_*.md
+Documents/*.pdf
+Documents/*.pptx
+Documents/Archive/
+
+
+# Generated Audio
+generated_audio/
+*.mp3
+*.wav
+
+# Streamlit
+.streamlit/
+
+# Eggs / Build
+*.egg-info/
+dist/
+build/
+
+# Test temp files
+test_out.txt
+err.txt
+result.json
+
+# Dataset (local gold standard)
+dataset/
