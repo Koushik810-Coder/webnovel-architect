@@ -20,9 +20,17 @@ class GraphProvider:
         self.graph.add_node(name, type="character", **attributes)
         self.save_graph()
 
-    def add_event(self, event_id: str, description: str, involved_entities: list, chapter_id: int = 0):
-        """Adds an event node and edges to involved entities."""
-        self.graph.add_node(event_id, type="event", description=description, chapter_id=chapter_id)
+    def add_event(self, event_id: str, description: str, involved_entities: list, chapter_id: int = 0, pre_conditions: str = "", post_conditions: str = "", location: str = "Unknown"):
+        """Adds an event node (DEU) and edges to involved entities."""
+        self.graph.add_node(
+            event_id, 
+            type="event", 
+            description=description, 
+            chapter_id=chapter_id,
+            pre_conditions=pre_conditions,
+            post_conditions=post_conditions,
+            location=location
+        )
         for entity in involved_entities:
             if self.graph.has_node(entity):
                 self.graph.add_edge(entity, event_id, relation="participant", chapter_id=chapter_id)

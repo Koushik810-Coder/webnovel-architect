@@ -105,15 +105,14 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 **Approach**
 
-- API-based structured extraction
-    
-- Convert JSON response → graph insertion
-    
+- Dual Pipeline Strategy:
+    - API-based structured extraction (LiteLLM)
+    - Fallback Named Entity Recognition (spaCy)
+- Convert response → graph insertion
 
 **Benefits**
 
-- Fast experimentation
-    
+- High accuracy via LLMs or deterministic fallback via spaCy
 - Architecture validation independent of local GPU
     
 
@@ -140,7 +139,7 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
     
     - Event participation frequency
         
-    - Temporal weighting
+    - Temporal decay weighting based on chronological chapter progression
         
 
 **Output**
@@ -161,7 +160,7 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-### 3. Phase 4 — Knowledge & Output Stabilization (CURRENT FOCUS)
+### 3. Phase 4 — Knowledge & Output Stabilization (COMPLETED)
 
 #### Wiki Generator Integration
 
@@ -183,17 +182,17 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-### 4. Phase 5 — Audio Layer Integration (COMPLETED)
+### 4. Phase 5 — Interactive UI Dashboard (COMPLETED)
 
-**Goal:** Demonstrate multimodal narrative representation.
+**Goal:** Demonstrate a fully integrated user experience for monitoring graph and managing features.
 
 **Implementation Priority**
 
-1. Edge-TTS (Zero-GPU)
+1. Streamlit Dashboard Data Hub
     
-2. Piper (Laptop Tier)
+2. Character Wiki Viewer Interface
     
-3. StyleTTS2 (Research Tier)
+3. Ingestion and Audio Generation Controls
     
 
 **Function**
@@ -208,7 +207,7 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-### 5. Experimentation & Evaluation Plan
+### 5. Phase 6 — Experimentation & Evaluation Plan (COMPLETED)
 
 #### Research Experiments
 
@@ -233,16 +232,12 @@ All subsequent enhancements (advanced NLP, high-fidelity TTS) are considered sec
 
 ---
 
-#### Metrics
+#### Metrics (Implemented in `scripts/evaluate.py`)
 
-- Entity consistency score
-    
-- Event precision/recall
-    
-- Graph coverage ratio
-    
-- Character salience correlation
-    
+- Entity tracking Precision/Recall (F1)
+- Graph traversal latency
+- Character salience correlation (Spearman ρ)
+- TTS Real-Time Factor (RTF)
 
 ---
 
@@ -289,20 +284,38 @@ experiments/
 
 The project is publication-ready when:
 
-- spaCy or API extraction functional
-    
-- Dynamic event graph operational
-    
-- Centrality-based graduation implemented
-    
-- Wiki generated from graph
-    
-- Experimental comparison vs baseline completed
-    
+- spaCy or API extraction functional (✓ Done)
+- Dynamic event graph operational (✓ Done)
+- Centrality-based graduation implemented (✓ Done)
+- Wiki generated from graph (✓ Done)
+- Experimental comparison vs baseline completed (✓ Done)
+
+**Status:** The MPS criteria have been fully met as of Phase 6.
 
 ---
 
-### 9. Future Research Extensions (Post-Submission)
+### 9. Phase 7 — Advanced Extractions & Audiobook Generation (COMPLETED)
+
+**Goal:** Elevate extraction quality and implement full story synthesis capabilities.
+
+**Tasks:**
+1. **Default to LLM Extraction:** Transition the default extraction engine from spaCy to the LLM-based pipeline to capture nuanced, high-quality character and world data. (Done)
+2. **Action-Based Event Schema / DyG-RAG Integration:** Refactor the event generation logic to Dynamic Event Units (DEUs) to support Time-CoT temporal reasoning. (Done)
+3. **Total Audiobook Generation:** Implement a feature to synthesize an audiobook for an entire chapter or story at once, bypassing the requirement for individual characters to graduate first. (Done)
+
+---
+
+### 10. Phase 8 — Dynamic Memory & Accessibility Features (CURRENT)
+
+**Goal:** Make the character wiki a living document and enhance the audiobook experience with a visualizer.
+
+**Tasks:**
+1. **Per-Chapter Wiki Evolution:** Re-integrate LLM summarization. When a character appears in a new chapter, append what happened to them (based on extracted Dynamic Event Units) to their canonical long biography, allowing their lore to grow dynamically rather than just stating their first/last chapter.
+2. **TTS On-Screen Visualizer:** Upgrade the Streamlit Audio Hub to include a synchronized on-screen visualizer (WebVTT). The text of the audiobook is displayed and highlighted perfectly in sync with the TTS audio playback, mimicking a modern audiobook app.
+
+---
+
+### 11. Future Research Extensions (Post-Submission)
 
 - Narrative causality inference models
     
@@ -319,7 +332,7 @@ The project is publication-ready when:
 
 ---
 
-### 10. Final Delivery Package
+### 12. Final Delivery Package
 
 At completion, the project should include:
 
@@ -339,6 +352,3 @@ At completion, the project should include:
     
 
 ---
-
-If you want, we can continue the documentation set.  
-Say **“next”** and I will produce **Document 5 — Research Methodology, Evaluation Design, and Publication Outline** (this is the piece that typically determines whether your work is accepted as a paper).

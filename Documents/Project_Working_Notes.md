@@ -14,9 +14,9 @@ Unlike traditional audiobooks which require a finished manuscript, this system r
 ## 2. Architecture: "The Switchboard" (Modular Adapter Pattern)
 The system uses a "Switchboard" architecture to decouple logic from specific models, allowing "Zero-GPU" operation on standard laptops while remaining future-proof for research labs.
 
-### A. The Brain (LLM Interface)
-*   **Tech:** `litellm` (Standardized wrapper for 100+ models).
-*   **Current Model:** `Gemini Flash` (Fast/Free) or `Llama 3` (Local).
+### A. The Brain (Extraction Interface)
+*   **Tech:** `litellm` (Standardized wrapper for 100+ models) AND `spaCy` (Deterministic NER fallback).
+*   **Current Model:** `Gemini Flash` (Fast/Free) or `spaCy en_core_web_sm` (Offline/CPU).
 *   **Role:** Extracts dialogue, identifies speakers, and detects "Events" from raw text.
 
 ### B. The Memory (Reasoning Engine)
@@ -34,11 +34,11 @@ The system uses a "Switchboard" architecture to decouple logic from specific mod
 ## 3. The "Graduation" Algorithm
 The system intelligently assigns resources using a specific "Importance Score" formula derived from Computational Narratology.
 
-$$ Score = (w_1 \times GraphCentrality) + (w_2 \times EventImpact) + (w_3 \times Recency) $$
+$$ Score = (PageRankCentrality \times TemporalDecay) $$
 
 *   **Logic:**
     *   **Score > Threshold:** Character "Graduates" to **Main Cast**. A unique Voice ID is **LOCKED** forever.
-    *   **Score < Threshold:** Character remains **Background**. Assigned a generic/random voice.
+    *   **Score < Threshold:** Character remains **Background**. Assigned a generic/random fallback voice.
 
 ---
 
@@ -64,7 +64,13 @@ $$ Score = (w_1 \times GraphCentrality) + (w_2 \times EventImpact) + (w_3 \times
 
 ---
 
-## 5. Research Basis
+## 5. UI & Evaluation (Phases 5 & 6)
+*   **The Dashboard (app_ui.py):** A Streamlit SPA demonstrating the end-to-end pipeline. Includes real-time ingestion, a Knowledge Graph visualizer, a Wiki Memory browser, and a dedicated Evaluation trigger.
+*   **The Evaluation Harness (evaluate.py):** A deterministic test suite proving the system operates on a Zero-GPU footprint. Measures Entity Extraction (F1), Graph Traversal Latency, TTS Real-Time Factor (RTF), and Spearman rank correlation ($\rho > 0.70$) for character importance against human ground-truth.
+
+---
+
+## 6. Research Basis
 This architecture is aligned with state-of-the-art NLP research (2024-2025):
 1.  **DyG-RAG (2025):** Event-Centric Modeling for long-term consistency.
 2.  **BOOKCOREF (2025):** Handling book-scale entity tracking.

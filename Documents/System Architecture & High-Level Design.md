@@ -87,14 +87,14 @@ Knowledge Outputs ("Memory" + "Voice")
 **Current Implementation**
 
 - **LiteLLM** (Gemini Flash) based structured extraction.
-- Validated via `verify_modular.py`.
+- **spaCy** local NER pipeline variant for fallback parsing.
+- Validated via `verify_modular.py` and test extraction suites.
     
 
 **Target Implementation**
 
-- spaCy or xCoRe entity linking
-    
-- LLM-based event extraction (API-driven)
+- Coreference Resolution (xCoRe)
+- Direct LLM-based Event relationship extraction (Causal mapping)
     
 
 **Key Responsibilities**
@@ -195,7 +195,7 @@ Event:
 
 **Current Logic**
 
-- **PageRank Centrality** (Implemented in `core/graduation.py`).
+- **PageRank Centrality** with integrated **Temporal Decay weights** (Implemented in `core/graduation.py` and `adapters/graph_adapter.py`).
 - Threshold-based Voice Locking (Implemented).
     
 
@@ -206,8 +206,6 @@ Event:
     - PageRank
         
     - Degree centrality
-        
-    - Event participation weighting
         
 
 **Outputs**

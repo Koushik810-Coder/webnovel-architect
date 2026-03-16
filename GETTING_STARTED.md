@@ -53,6 +53,24 @@ uvicorn app.main:app --reload
 The API will be available at `http://localhost:8000`.
 You can view the interactive Swagger docs at `http://localhost:8000/docs`.
 
+### Option C: Run the Interactive UI
+To launch the full interactive web application, including the Dashboard, Ingestion tool, Wiki Viewer, and Audio Generation hub:
+
+```bash
+streamlit run app_ui.py
+```
+
+### Option D: Run the Evaluation Harness
+To verify the system's accuracy and performance metrics against the minimum publishable system benchmarks:
+
+```bash
+# Run all core metrics (fast, avoids API costs)
+python scripts/evaluate.py --no-tts
+
+# Run full suite (slow, compares spaCy vs LLM extraction)
+python scripts/evaluate.py --llm
+```
+
 ---
 
 ## 3. How It Works: The Pipeline

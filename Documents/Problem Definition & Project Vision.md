@@ -139,6 +139,8 @@ The system combines:
     
 - Graduation/Ranking System for characters
     
+- Interactive Streamlit Dashboard UI
+    
 - Experimental evaluation results
     
 

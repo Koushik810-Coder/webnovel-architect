@@ -51,7 +51,11 @@ class EdgeAdapter(TTSProvider):
 # 4. The Factory: Decides which one to give you
 def get_tts_engine(config_type):
     if config_type == "kokoro":
-        return KokoroAdapter()
+        adapter = KokoroAdapter()
+        if adapter.engine is None:
+            print("Kokoro unavailable. Falling back to EdgeTTS.")
+            return EdgeAdapter()
+        return adapter
     elif config_type == "edge":
         return EdgeAdapter()
     else:

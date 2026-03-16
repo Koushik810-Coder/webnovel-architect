@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 class StoryManager:
@@ -31,8 +31,8 @@ class StoryManager:
         metadata = {
             "uuid": story_uuid,
             "name": name,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
         with open(os.path.join(story_path, "story.json"), "w") as f:
@@ -81,7 +81,7 @@ class StoryManager:
         if os.path.exists(meta_path):
             with open(meta_path, "r") as f:
                 meta = json.load(f)
-            meta["updated_at"] = datetime.utcnow().isoformat()
+            meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=4)
 
@@ -92,7 +92,7 @@ class StoryManager:
             with open(meta_path, "r") as f:
                 meta = json.load(f)
             meta["name"] = new_name
-            meta["updated_at"] = datetime.utcnow().isoformat()
+            meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=4)
             return True
@@ -117,8 +117,8 @@ class StoryManager:
                 meta = json.load(f)
             meta["uuid"] = new_uuid
             meta["name"] = f"{meta['name']} (Copy)"
-            meta["created_at"] = datetime.utcnow().isoformat()
-            meta["updated_at"] = datetime.utcnow().isoformat()
+            meta["created_at"] = datetime.now(timezone.utc).isoformat()
+            meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=4)
                 
@@ -131,6 +131,6 @@ class StoryManager:
         if not os.path.exists(src_path):
             return False
             
-        dst_path = os.path.join(cls.TRASH_DIR, f"{story_uuid}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
+        dst_path = os.path.join(cls.TRASH_DIR, f"{story_uuid}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
         shutil.move(src_path, dst_path)
         return True

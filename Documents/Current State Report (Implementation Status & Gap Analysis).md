@@ -37,11 +37,11 @@ The **Webnovel Architect** project has successfully transitioned from a heuristi
 
 ### 3.1 Ingestion Engine ("The Eye")
 
-**Status:** ✅ **Implemented with LLM-based Extraction**
+**Status:** ✅ **Implemented with LLM and spaCy-based Extraction**
 
 **Current Implementation**
 - **Module:** [`core/ingestion.py`](file:///c:/Projects/webnovel-architect/core/ingestion.py)
-- **Method:** LiteLLM-based structured extraction (Gemini Flash by default)
+- **Method:** LiteLLM-based structured extraction (Gemini Flash by default) AND a fallback spaCy Named Entity Recognition (NER) pipeline.
 - **Capabilities:**
   - Dialogue extraction with speaker identification
   - Emotion detection per line
@@ -86,6 +86,7 @@ ingest_chapter_text(text) → LLM Analysis → {dialogue, events} → Graph Upda
 - PageRank centrality calculation for character importance
 - Automatic graph persistence on every update
 - Singleton pattern for consistent state
+- Temporal Weighting integrating chapter chronological progression into PageRank calculations
 
 **Architecture:**
 ```python
@@ -102,7 +103,6 @@ GraphProvider:
 - Extensible for future relationship types
 
 **Known Limitations:**
-- No temporal weighting (all events equally recent)
 - Simple JSON persistence (not scalable to large novels)
 - No graph query language (manual NetworkX operations)
 
@@ -154,7 +154,7 @@ GraphProvider:
 
 **How It Works:**
 1. Graph contains characters and events
-2. PageRank propagates importance through `participant`/`featured` edges
+2. PageRank propagates importance through `participant`/`featured` edges, with an integrated Temporal Decay factor prioritizing recent chapters
 3. Characters with high centrality "graduate" to main cast
 4. Main cast → High-quality TTS (Kokoro)
 5. Background → Fallback TTS (EdgeTTS)
@@ -166,7 +166,6 @@ GraphProvider:
 
 **Known Limitations:**
 - Static threshold (doesn't adapt to cast size)
-- No temporal decay (old events = new events)
 - Doesn't consider dialogue length, only participation
 
 **Gap Severity:** 🟡 **Low-Medium** (functional, but research can improve)
@@ -238,10 +237,28 @@ main.py:
 
 ---
 
+### 3.7 User Interface
+
+**Status:** ✅ **Implemented**
+
+**Current Implementation**
+- **Framework:** Streamlit (`app_ui.py`)
+- **Features:**
+  - Interactive Dashboard for real-time overview
+  - Ingestion Engine UI for processing text files
+  - Character Wiki Viewer for dynamically generated markdown profiles
+  - Audio Generation Hub for on-demand TTS synthesis
+- **Architecture:** Communicates with the core Python backend (Ingestion, Graduation, Graph Providers) and directly updates the Streamlit interface.
+
+**Gap Severity:** 🟢 **None**
+
+---
+
 ## 4. Technology Stack (Current Implementation)
 
 | Component | Technology | Status |
 |-----------|-----------|--------|
+| **User Interface** | Streamlit | ✅ Implemented |
 | **LLM Adapter** | LiteLLM (Gemini Flash default) | ✅ Implemented |
 | **Graph Backend** | NetworkX DiGraph | ✅ Implemented |
 | **Persistence** | JSON (node-link format) | ✅ Implemented |
@@ -367,9 +384,7 @@ The previous "architecture drift" issue has been **resolved**. The implementatio
 ## 8. Immediate Next Steps (Prioritized)
 
 ### **Sprint 1: Temporal Weighting** (Research Value)
-1. Add `chapter_id` and `timestamp` to event nodes
-2. Implement temporal decay in PageRank calculation
-3. Compare results: static vs temporal-weighted graduation
+✅ **Completed:** `chapter_id` integration and temporal decay algorithm implemented in GraphAdapter.
 
 ### **Sprint 2: Alias Resolution** (Quality Improvement)
 4. Integrate spaCy coreference resolution

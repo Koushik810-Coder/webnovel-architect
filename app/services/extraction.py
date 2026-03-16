@@ -6,6 +6,9 @@ from typing import Dict, Any
 # Disable unused components for performance
 try:
     nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger", "lemmatizer", "attribute_ruler", "tok2vec"])
+    # Process each chapter as a single unit — no chunking.
+    # Raise max_length well above any realistic web-novel chapter size (~2 M chars ≈ 400 k words).
+    nlp.max_length = 2_000_000
     
     # Layer 2 — Fantasy Booster (EntityRuler)
     ruler = nlp.add_pipe("entity_ruler", before="ner", config={"overwrite_ents": True})
@@ -64,7 +67,7 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
     if nlp is None:
         raise RuntimeError("spaCy model 'en_core_web_sm' is not installed. Please run: python -m spacy download en_core_web_sm")
         
-    # Process text through spaCy
+    # Process the entire chapter text as one document — no chunking.
     doc = nlp(text)
     
     # Common spaCy false positives
@@ -122,9 +125,15 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     from adapters.llm_adapter import analyze_text_json
     
     prompt = f"""
-    Analyze the following chapter text and extract two lists:
+    Analyze the following chapter text and extract these elements:
     1. 'active_character_names': A list of unique character names present in the text. Normalize titles (e.g., return "Stark" instead of "Lord Stark").
     2. 'active_world_terms': A list of unique world-building terms like locations, factions, magical systems, and ranks.
+    3. 'events': A list of significant events occurring in this chapter. Structure these as Dynamic Event Units (DEUs). Each event must have:
+        - 'action_summary': A brief string describing the action, e.g., "Lucian fights the Forest Troll".
+        - 'involved_characters': A list of character names involved.
+        - 'pre_conditions': A brief description of the state or situation *before* the event.
+        - 'post_conditions': A brief description of the state or situation *after* the event.
+        - 'location': The location where the event takes place (if mentioned, otherwise "Unknown").
     
     Also count the approximate number of times dialogue occurs (dialogue blocks enclosed in quotes). Return this as an integer 'dialogue_count_total'.
     
@@ -132,7 +141,16 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     {{
         "active_character_names": ["Name1", "Name2"],
         "active_world_terms": ["Location1", "Faction1"],
-        "dialogue_count_total": 5
+        "dialogue_count_total": 5,
+        "events": [
+            {{
+                "action_summary": "Character1 discovers the ancient artifact",
+                "involved_characters": ["Character1"],
+                "pre_conditions": "Character1 is searching the ruins.",
+                "post_conditions": "Character1 gains magical powers.",
+                "location": "Ancient Ruins"
+            }}
+        ]
     }}
     
     Chapter Text:
@@ -155,6 +173,9 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
         try: dialogue_count = int(dialogue_count)
         except: dialogue_count = 0
         
+    events = result.get("events", [])
+    if not isinstance(events, list): events = []
+        
     # Deduplicate and sort
     active_characters = sorted(list(set(active_characters)))
     active_world_terms = sorted(list(set(active_world_terms)))
@@ -163,6 +184,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
         "active_character_names": active_characters,
         "active_world_terms": active_world_terms,
         "dialogue_count_total": dialogue_count,
+        "events": events,
         "raw_entities": {name: 1 for name in active_characters}
     }
 

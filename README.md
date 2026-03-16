@@ -16,8 +16,10 @@ It uses a **Neuro-Symbolic** approach:
 ## Key Features
 
 *   **Modular "Switchboard" Architecture**: Swap LLM providers and TTS engines easily via adapters.
+*   **Dual Extraction Pipelines**: Utilizes both a LiteLLM-based structured extraction and a fallback spaCy NER pipeline.
 *   **Event Extraction**: Automatically detects narrative events and links them to characters.
-*   **Graph-Based Graduation**: Uses **PageRank** to determine "Main Character" status based on narrative centrality, not just line counts.
+*   **Graph-Based Graduation**: Uses **PageRank** combined with **Temporal Decay** to determine "Main Character" status based on narrative centrality and recency.
+*   **Interactive UI**: Includes a fully-featured Streamlit user interface (`app_ui.py`) for dashboard tracking, ingestion, and wiki viewing.
 *   **Zero-GPU Compatible**: Designed to run on standard laptops using lightweight models and API-based extraction.
 
 ## Getting Started
@@ -31,6 +33,11 @@ It uses a **Neuro-Symbolic** approach:
     ```
 
 ### Quick Verification
+To launch the interactive Streamlit User Interface:
+```bash
+streamlit run app_ui.py
+```
+
 Run the verification script to test the entire pipeline (Ingestion -> Extraction -> Graph -> Graduation -> TTS):
 
 ```bash
@@ -51,9 +58,9 @@ python verify_modular.py
 *   `Documents/`: Detailed research reports and roadmaps.
 
 ## Current Status
-*   **Phase**: Voice Management System Implemented (Phase 4 Completed)
-*   **Latest Feature**: VoiceRegistry, Deterministic Assignment, and Wiki Persistence
-*   **Next Milestone**: Advanced Audio Engine & Polish (Phase 5)
+*   **Phase**: Evaluation & Multimodal Integration (Phase 6 Completed)
+*   **Latest Feature**: Streamlit UI Dashboard & Automated Evaluation Metric Harness (`scripts/evaluate.py`).
+*   **Next Milestone**: Final Submission & Demonstration Showcase (Phase 7)
 *   **Future Goal**: DyG-RAG based conversational chatbot for interacting with the story world
 
 ## Contributing

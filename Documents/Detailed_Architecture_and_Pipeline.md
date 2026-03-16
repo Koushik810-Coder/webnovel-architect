@@ -1,8 +1,8 @@
 # Webnovel Architect: Detailed Architecture & User Pipeline
 
-**Version:** 1.1  
-**Date:** 2026-02-24  
-**Status:** Knowledge Stabilization & Audio Integration (Phase 4 Current)
+**Version:** 1.2  
+**Date:** 2026-03-04  
+**Status:** Interactive Web UI (Phase 5 Complete)
 
 ---
 
@@ -167,7 +167,7 @@ sequenceDiagram
 
 ### 4.1 Ingestion Engine ("The Eye")
 *   **Goal:** Turn unstructured text into structured data.
-*   **Laptop Mode:** Uses Regex and spaCy (runs on CPU).
+*   **Laptop Mode:** Uses deterministic `spaCy` NER + Custom Rules for offline execution.
 *   **Laptop/Zero-GPU Mode:** Uses **LiteLLM** (Gemini Flash) via `ingest_chapter_text` for high-accuracy extraction without local hardware.
 *   **Research Mode:** Uses local Llama-3 for maximum privacy and control (via adapter switch).
 
@@ -190,7 +190,7 @@ sequenceDiagram
 *   **Algorithm:** 
     *   *Background/Supporting Characters* = Standard Voice (Edge-TTS fallback).
     *   *Main Cast* = High Quality Voice (Kokoro ONNX local).
-*   **Logic:** As a character's "Centrality" (via PageRank) increases in the graph, they "Graduate" above a static threshold (0.15) and receive premium voice assignment.
+*   **Logic:** As a character's "Centrality" (via PageRank scaled by Temporal Decay weights) increases in the graph, they "Graduate" above a static threshold (0.15) and receive premium voice assignment.
 
 
 
@@ -202,8 +202,8 @@ sequenceDiagram
 
 The system supports three distinct hardware profiles via the Switchboard.
 
-| Tier | Extraction Strategy | Runtime Memory | Audio Synthesis |
-| :--- | :--- | :--- | :--- |
-| **Research Lab**<br>*(High-End GPU)* | **xCore / Llama-3 (FP16)**<br>Local, high-precision extraction. | **Neo4j Enterprise / KuzuDB**<br>Visual, server-based graph. | **StyleTTS2 / XTTS**<br>Studio-quality voice (requires VRAM). |
-| **Laptop**<br>*(Consumer CPU)* | **LiteLLM / Gemini Flash**<br>High-accuracy text processing. | **NetworkX / JSON**<br>Lightweight memory graph. | **Kokoro (ONNX)**<br>High-quality offline CPU TTS. |
-| **Zero-GPU**<br>*(Cloud Dependent)* | **LLM API (OpenAI/Groq)**<br>Offloaded intelligence. | **NetworkX / JSON**<br>Lightweight memory graph. | **Edge-TTS / API**<br>Cloud-based basic synthesis. |
+| Tier | UI Component | Extraction Strategy | Runtime Memory | Audio Synthesis |
+| :--- | :--- | :--- | :--- | :--- |
+| **Research Lab**<br>*(High-End GPU)* | **Streamlit**<br>Interactive Dashboard. | **xCore / Llama-3 (FP16)**<br>Local, high-precision extraction. | **Neo4j Enterprise / KuzuDB**<br>Visual, server-based graph. | **StyleTTS2 / XTTS**<br>Studio-quality voice (requires VRAM). |
+| **Laptop**<br>*(Consumer CPU)* | **Streamlit**<br>Interactive Dashboard. | **LiteLLM / Gemini Flash / spaCy**<br>High-accuracy text processing OR deterministic fallback. | **NetworkX / JSON**<br>Lightweight memory graph. | **Kokoro (ONNX)**<br>High-quality offline CPU TTS. |
+| **Zero-GPU**<br>*(Cloud Dependent)* | **Streamlit**<br>Interactive Dashboard. | **LLM API (OpenAI/Groq)**<br>Offloaded intelligence. | **NetworkX / JSON**<br>Lightweight memory graph. | **Edge-TTS / API**<br>Cloud-based basic synthesis. |

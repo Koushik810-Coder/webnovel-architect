@@ -1,9 +1,13 @@
 import sys
 import json
 import os
+
+# Add the parent directory (project root) to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from app.services.extraction import extract_chapter_intelligence_llm
 
-env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')
 if os.path.exists(env_path):
     with open(env_path, 'r') as f:
         for line in f:

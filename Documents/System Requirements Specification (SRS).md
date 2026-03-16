@@ -1,338 +1,86 @@
-**Project Title:** _Webnovel Architect — Neuro-Symbolic Story Intelligence System_  
-**Document Version:** 1.0  
-**Date:** 2026-02-10  
-**Status:** Requirements Baseline (Partially Implemented)
-**Standard Reference:** Structured in alignment with IEEE-style SRS conventions.
+# Document 7: System Requirements Specification (SRS)
+
+**Project Title:** Webnovel Architect — Neuro-Symbolic Story Intelligence System  
+**Document Type:** Formal IEEE SRS Template Application  
+**Version:** 1.0  
 
 ---
 
-### 1. Introduction
+## 1. Introduction
 
-#### 1.1 Purpose
+### 1.1 Purpose
+The purpose of this document is to clearly define the functional and non-functional requirements of the "Webnovel Architect" system. This document is intended as the primary technical reference for the development and evaluation phases.
 
-This document specifies the functional and non-functional requirements for the Webnovel Architect system. It serves as the formal agreement between development, evaluation, and review stakeholders regarding system behavior and constraints.
+### 1.2 Scope
+Webnovel Architect is an open-source, Zero-GPU ingestion engine that processes serialized chapters of web fiction. It utilizes a Litellm/spaCy pipeline to extract events, models them dynamically in a Directed Acyclic Graph (DAG), calculates character centrality over time using PageRank, and dynamically casts Text-to-Speech (TTS) voices to high-importance characters to produce live audio dramas.
 
-#### 1.2 Scope
-
-Webnovel Architect is a narrative analysis and knowledge construction platform that:
-**Current Implementation**
-
-- Structured- Ingests serialized fiction text
-- Extracts entities and narrative events
-    
-- Maintains a persistent dynamic event graph
-    
-- Computes character importance
-    
-- Produces canonical knowledge outputs (Wiki, optional audio)
-    
-
-The system is intended for research validation, academic evaluation, and future extensibility into a production tool.
-
-#### 1.3 Definitions
-
-|Term|Definition|
-|---|---|
-|DyG-RAG|Dynamic Graph Retrieval-Augmented Generation|
-|Event Node|Structured representation of narrative action|
-|Canon|Authoritative knowledge derived from processed text|
-|Graduation|Promotion of character to main cast status|
-|Story Runtime|Persistent graph-based narrative memory|
+### 1.3 Target Audience
+1.  **Readers / Listeners:** Users consuming an ongoing webnovel who desire an immersive, auto-updating audio drama format.
+2.  **Authors / Editors:** Writers seeking to maintain a consistent "Story Bible" or canonical Character Wiki without manual data entry.
 
 ---
 
-### 2. Overall System Description
+## 2. Overall Description
 
-#### 2.1 Product Perspective
+### 2.1 Product Perspective
+Webnovel Architect acts as an intermediary "middleware" between raw text generation (the author publishing a chapter) and final content delivery (audio generation). It is built as a self-contained local Python application deployed via Streamlit.
 
-The system operates as a modular backend service composed of:
+### 2.2 System Architecture
+The system employs a 5-Layer "Switchboard" Architecture:
+1.  **Presentation (L1):** Interactive `app_ui.py` Streamlit Dashboard.
+2.  **Switchboard (L2):** Adapter layer routing requests to available LLM/TTS resources.
+3.  **Ingestion ("The Eye") (L3):** Entity matching via `Gemini Flash` or `spaCy en_core_web_sm`.
+4.  **Story Runtime ("The Brain") (L4):** In-memory and persistent JSON DAG (`networkx`).
+5.  **Graduation ("The Director") (L5):** Evaluation of metrics (PageRank/Decay) and execution of audio generation (`Kokoro ONNX` / `EdgeTTS`).
 
-- Ingestion and extraction modules
-    
-- Graph-based runtime
-    
-- Reasoning engine
-    
-- Output generation services
-    
-
-It can function as:
-
-- Research platform
-    
-- Developer API
-    
-- Future application backend
-    
+### 2.3 Operating Environment
+*   **OS:** Windows, macOS, Linux
+*   **Runtime:** Python 3.9+ installed natively.
+*   **Hardware Constraint ("Zero-GPU"):** The core innovation is that the system must operate entirely on standard consumer CPUs without requiring discrete graphical processing hardware.
 
 ---
 
-#### 2.2 System Overview (Functional Flow)
+## 3. Specific Requirements
 
-```
-Narrative Text Input
-    → Entity & Event Extraction
-    → Event Graph Construction
-    → Graph-Based Reasoning
-    → Wiki + Character Status + Audio Output
-```
+### 3.1 Functional Requirements
 
----
+#### FR-01: Ingestion Engine
+*   **FR-01.1:** The system SHALL accept raw string text representing a novel chapter.
+*   **FR-01.2:** The system SHALL offer both an LLM-based and an offline deterministic (spaCy) extraction pipeline.
+*   **FR-01.3:** The system SHALL identify unique character names and world-building terms.
 
-#### 2.3 User Classes
+#### FR-02: Knowledge Graph
+*   **FR-02.1:** The system SHALL maintain a chronological DAG of extracted entities against story chapters.
+*   **FR-02.2:** The system SHALL recalculate a character’s "Importance Score" upon any graph update.
+*   **FR-02.3:** The system SHALL apply Temporal Decay such that older event participation deprecates over time.
 
-|User Type|Description|
-|---|---|
-|Researcher|Evaluates system accuracy|
-|Developer|Extends architecture|
-|Writer/Reader|Consumes generated knowledge artifacts|
-|Mentor/Evaluator|Reviews project outcomes|
+#### FR-03: Character Graduation & Wiki
+*   **FR-03.1:** The system SHALL promote a character to the "Main Cast" if their Importance Score breaches a configurable threshold ($0.15$).
+*   **FR-03.2:** Upon "Graduation," the system SHALL lock a persistent TTS Voice ID to that character profile.
+*   **FR-03.3:** The system SHALL autogenerate a Markdown-formatted Character Wiki document reflecting current graph state.
 
----
-
-#### 2.4 Operating Environment
-
-- Python runtime environment
-    
-- Local or cloud execution
-    
-- Graph database (KuzuDB / Neo4j)
-    
-- Optional GPU (advanced extraction / TTS)
-    
+#### FR-04: Audio Generation
+*   **FR-04.1:** The system SHALL synthesize provided dialogue using the character's designated Voice ID.
+*   **FR-04.2:** The system SHALL execute audio synthesis locally (`kokoro-onnx`) or fall back to an online edge API if constraints demand it.
 
 ---
 
-#### 2.5 Design Constraints
+### 3.2 Non-Functional Requirements
 
-- Must support CPU-only execution (Zero-GPU tier)
-    
-- Must maintain reproducible experiment results
-    
-- Must use persistent storage for canonical knowledge
-    
+#### NFR-01: Performance Constraints
+*   **NFR-01.1 (Latency):** Graph traversal and PageRank calculation for up to 1,000 nodes MUST execute in under $500 ms$.
+*   **NFR-01.2 (Real-Time Factor):** Audio synthesis MUST execute faster than real-time ($RTF < 1.0$).
 
----
+#### NFR-02: Reliability
+*   **NFR-02.1 (Switchboard Fallback):** If an LLM extraction pipeline fails (e.g. rate limit), the system MUST gracefully fall back to the local `spaCy` NER model without breaking the ingestion timeline.
 
-#### 2.6 Assumptions and Dependencies
-
-- Input text is well-formed narrative prose
-    
-- External NLP models/APIs available
-    
-- Graph database remains accessible
-    
+#### NFR-03: Maintainability
+*   **NFR-03.1 (Isolation):** Individual webnovel datasets MUST be wholly contained within their own `data/[UUID]` isolate. Deleting the folder entirely resets the narrative state.
 
 ---
 
-### 3. Functional Requirements
-
-#### 3.1 Text Ingestion
-
-**FR-1**  
-The system shall accept narrative text as input.
-
-**FR-2**  
-The system shall segment input into processing units (e.g., chapters).
-
----
-
-#### 3.2 Entity Extraction
-
-**FR-3**  
-The system shall identify character entities from text.
-
-**FR-4**  
-The system shall link repeated mentions to existing entities.
-
----
-
-#### 3.3 Event Construction
-
-**FR-5**  
-The system shall generate structured event objects containing:
-
-- Actor(s)
-    
-- Action
-    
-- Narrative order
-    
-- Source reference
-    
-
----
-
-#### 3.4 Graph Runtime
-
-**FR-6**  
-The system shall persist events and entities in a graph database.
-
-**FR-7**  
-The system shall maintain relationships between characters and events.
-
-**FR-8**  
-The system shall allow retrieval of historical narrative context.
-
----
-
-#### 3.5 Character Importance Evaluation
-
-**FR-9**  
-The system shall compute character importance using graph metrics.
-**Current Logic**
-- **PageRank Centrality (Implemented)**
-- Threshold-based voice assignment using `VoiceRegistry` (Implemented)
-
-**FR-10**  
-The system shall assign classification tiers (background/supporting/main).
-
----
-
-#### 3.6 Canonical Knowledge Generation
-
-**FR-11**  
-The system shall generate markdown wiki pages for characters.
-
-**FR-12**  
-The system shall update wiki content as new events are processed.
-
----
-
-#### 3.7 Audio Output
-
-**FR-13**  
-The system shall generate speech output for selected characters and map voices consistently using a centralized registry.
-
----
-
-### 4. Non-Functional Requirements
-
-#### 4.1 Performance
-
-- System should process individual chapters within acceptable latency.
-    
-- Graph insertion should support incremental updates.
-    
-
-#### 4.2 Reliability
-
-- Persistent storage must prevent data loss across sessions.
-    
-
-#### 4.3 Scalability
-
-- Architecture must support expansion to longer narratives.
-    
-
-#### 4.4 Maintainability
-
-- Modular services must be independently replaceable.
-    
-
-#### 4.5 Reproducibility
-
-- Experimental runs must be traceable and repeatable.
-    
-
-#### 4.6 Portability
-
-- System must operate on:
-    
-    - Research workstation
-        
-    - Laptop
-        
-    - CPU-only environment
-        
-
----
-
-### 5. External Interface Requirements
-
-#### 5.1 Input Interfaces
-
-- Text file ingestion
-    
-- API endpoint (future)
-    
-
-#### 5.2 Output Interfaces
-
-- Markdown files
-    
-- Graph database queries
-    
-- Audio files
-    
-
----
-
-### 6. Data Requirements
-
-#### 6.1 Stored Data
-
-- Character nodes
-    
-- Event nodes
-    
-- Relationship edges
-    
-
-#### 6.2 Metadata
-
-- Source text references
-    
-- Extraction version
-    
-- Timestamp
-    
-
----
-
-### 7. System Constraints
-
-- Graph schema must remain versioned.
-    
-- Canonical wiki must remain human-readable.
-    
-
----
-
-### 8. Acceptance Criteria
-
-The system is considered compliant when:
-
-- Event graph persists narrative relationships
-    
-- Character ranking is reproducible
-    
-- Wiki is generated automatically
-    
-- Experimental evaluation metrics can be produced
-    
-
----
-
-You now have a **complete, end-to-end professional documentation stack** covering:
-
-1. Problem & Vision
-    
-2. Architecture
-    
-3. Current State
-    
-4. Implementation Roadmap
-    
-5. Research Methodology
-    
-6. SDLC & Project Management
-    
-7. Formal SRS
-    
-
-If you want, the next high-leverage step would be either:
-
-- **Convert all these into a single submission-ready master report structure**, or
-    
-- **Create diagrams (architecture, data flow, graph schema) that will significantly increase evaluation marks.**
+## 4. Evaluation and Verification
+Implementation of these requirements is measured and verified dynamically by the Phase 6 `scripts/evaluate.py` test framework:
+*   FR-01 validation via Entity P/R/F1.
+*   FR-02/FR-03 validation via Spearman Rank Correlation ($>0.70$).
+*   NFR-01 validation via explicit Latency and RTF checks integrated into the CI/CD test suite.

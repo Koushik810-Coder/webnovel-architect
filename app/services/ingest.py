@@ -65,17 +65,17 @@ def save_chapter(story_uuid: str, chapter: Chapter):
     with open(os.path.join(chapter_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
-def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "spacy", decay_rate: float = 0.05) -> Chapter:
+def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm", decay_rate: float = 0.05) -> Chapter:
     chapter_counter, runtime_db = load_runtime(story_uuid)
     
     chapter_counter += 1
 
-    # 1. Create Base Chapter
+    from datetime import timezone
     chapter = Chapter(
         id=chapter_counter,
         title=title,
         raw_text=text,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     
     # Save chapter to disk
@@ -104,7 +104,35 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "spa
         graph.add_character(char_id, {"display_name": name, "last_seen_chapter": chapter_counter})
         
     # Create an event to represent the occurrences in this chapter
-    if active_names:
+    events = intelligence.get("events", [])
+    if events:
+        for idx, event_data in enumerate(events):
+            action_summary = event_data.get("action_summary", "Unknown Event")
+            involved_chars = event_data.get("involved_characters", [])
+            
+            # Resolve aliases for the involved characters
+            involved_chars = resolve_aliases(involved_chars)
+            
+            # Filter out characters that aren't in active_names to be safe
+            valid_chars = [normalize_id(n) for n in involved_chars if normalize_id(n) in [normalize_id(an) for an in active_names]]
+            
+            if valid_chars:
+                event_id = f"chapter_{chapter_counter}_event_{idx}"
+                pre_conditions = event_data.get("pre_conditions", "")
+                post_conditions = event_data.get("post_conditions", "")
+                location = event_data.get("location", "Unknown")
+                
+                graph.add_event(
+                    event_id, 
+                    action_summary, 
+                    valid_chars, 
+                    chapter_id=chapter_counter,
+                    pre_conditions=pre_conditions,
+                    post_conditions=post_conditions,
+                    location=location
+                )
+    elif active_names:
+        # Fallback to the generic event if no specific events were extracted
         event_id = f"chapter_{chapter_counter}_event"
         description = f"Events of Chapter {chapter_counter}"
         graph.add_event(event_id, description, [normalize_id(n) for n in active_names], chapter_id=chapter_counter)
@@ -149,16 +177,37 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "spa
             did_graduate = check_graduation_status(char)
             if did_graduate:
                 print(f"[EVENT] Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
-                wiki_entry = CharacterWiki(
-                    character_id=char_id,
-                    display_name=name,
-                    short_description=f"Appeared in Chapter {char.first_seen_chapter}",
-                    first_appearance_chapter=char.first_seen_chapter,
-                    last_updated_chapter=chapter_counter,
-                    confidence=char.confidence_score,
-                    voice_id=char.voice_id
-                )
-                save_character_wiki(story_uuid, wiki_entry)
+                
+            # Grab existing wiki content
+            from app.services.wiki import get_character_wiki_content, update_character_summary
+            existing_wiki_md = get_character_wiki_content(story_uuid, char_id)
+            
+            # Extract only the "long_description" part from the raw MD, or just use the whole thing if simple
+            import re
+            desc_match = re.search(r"## Description\n(.*?)(?=\n##|$)", existing_wiki_md, flags=re.DOTALL)
+            existing_desc = desc_match.group(1).strip() if desc_match else ""
+            
+            # Find what happened to them this chapter
+            char_events_this_chapter = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
+            event_text_block = "\n".join([f"- {e.get('action_summary')}" for e in char_events_this_chapter])
+            
+            new_long_desc = existing_desc
+            if event_text_block:
+                # Only run the LLM if they actually did something in an event (saves tokens/time for background chars)
+                new_long_desc = update_character_summary(existing_desc, event_text_block, name)
+                
+            # Always update the Wiki so it reflects the latest stats (Confidence, Mentions)
+            wiki_entry = CharacterWiki(
+                character_id=char_id,
+                display_name=name,
+                short_description=f"First appeared in Chapter {char.first_seen_chapter}. Last seen in Chapter {char.last_seen_chapter}.",
+                long_description=new_long_desc if new_long_desc else None,
+                first_appearance_chapter=char.first_seen_chapter,
+                last_updated_chapter=chapter_counter,
+                confidence=char.confidence_score,
+                voice_id=char.voice_id
+            )
+            save_character_wiki(story_uuid, wiki_entry)
             
             # Update local state
             runtime_db[char_id] = char

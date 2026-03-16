@@ -89,7 +89,7 @@ with st.sidebar:
     # Navigation Radio
     page = st.radio(
         "Navigation",
-        ["Dashboard", "Ingestion Engine", "Wiki Memory", "Knowledge Graph", "Audio Hub"]
+        ["Dashboard", "Ingestion Engine", "Wiki Memory", "Knowledge Graph", "Story Q&A", "Audio Hub", "Evaluation"]
     )
     
     st.divider()
@@ -118,7 +118,9 @@ if page == "Dashboard":
     col1, col2, col3 = st.columns(3)
     col1.metric("Processed Chapters", chapter_counter)
     col2.metric("Discovered Characters", len(runtime_db))
-    col3.metric("Graduated Characters", len([c for c in runtime_db.values() if c.voice_id is not None]))
+    # Count graduation properly based on threshold, not just voice_id
+    graduated_count = len([c for c in runtime_db.values() if c.confidence_score >= 0.75 or c.voice_id is not None])
+    col3.metric("Graduated Characters", graduated_count)
     
     st.subheader("System Configuration")
     st.code(f"LLM Engine: {config.get('llm_model')}\nMain TTS: {config.get('tts_engine')}\nFallback TTS: {config.get('fallback_tts')}", language="yaml")
@@ -129,25 +131,91 @@ elif page == "Ingestion Engine":
     
     st.subheader("Fetch from URL (Optional)")
     with st.form("fetch_url_form"):
-        url_input = st.text_input("Royal Road Chapter URL", placeholder="https://www.royalroad.com/fiction/.../chapter/...")
+        url_input = st.text_input("Royal Road Chapter or Fiction URL", placeholder="https://www.royalroad.com/fiction/...")
         fetch_submit = st.form_submit_button("Fetch Content")
         
         if fetch_submit and url_input:
-            with st.spinner("Fetching chapter from Royal Road..."):
+            with st.spinner("Fetching from Royal Road..."):
                 try:
-                    from app.services.royal_road_scraper import scrape_royal_road
-                    scraped_data = scrape_royal_road(url_input)
-                    st.session_state['fetched_title'] = scraped_data['title']
-                    st.session_state['fetched_text'] = scraped_data['text']
-                    st.success(f"Successfully fetched: {scraped_data['title']}")
+                    from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                    scraper = RoyalRoadScraper()
+                    if scraper.can_handle_index_url(url_input):
+                        chapters = scraper.scrape_index(url_input)
+                        st.session_state['parsed_index_chapters'] = chapters
+                        # Clear any existing chapter so it defaults to the new index
+                        st.session_state.pop('fetched_title', None)
+                        st.session_state.pop('fetched_text', None)
+                        st.success(f"Successfully scraped index: {len(chapters)} chapters found!")
+                    elif scraper.can_handle_url(url_input):
+                        scraped_data = scraper.scrape_chapter(url_input)
+                        st.session_state['fetched_title'] = scraped_data['title']
+                        st.session_state['fetched_text'] = scraped_data['text']
+                        # Clear parsed index if they fetched a raw chapter
+                        st.session_state.pop('parsed_index_chapters', None)
+                        st.success(f"Successfully fetched: {scraped_data['title']}")
+                    else:
+                        st.error("Currently, only Royal Road Chapter and Fiction URLs are supported.")
                 except Exception as e:
                     st.error(f"Failed to fetch from URL: {str(e)}")
+                    
+    st.subheader("Or Upload EPUB File")
+    epub_file = st.file_uploader("Upload an .epub file", type=["epub"])
+    
+    if epub_file is not None:
+        if st.button("Parse EPUB Chapters"):
+            with st.spinner("Extracting chapters from EPUB..."):
+                from app.services.scrapers.epub_parser import EpubParser
+                try:
+                    parser = EpubParser()
+                    chapters = parser.parse_epub(epub_file.read())
+                    st.session_state['parsed_epub_chapters'] = chapters
+                    st.success(f"Successfully extracted {len(chapters)} chapters!")
+                except Exception as e:
+                    st.error(f"Failed to parse EPUB: {str(e)}")
                     
     st.divider()
     
     # Pre-fill with fetched data if available
     default_title = st.session_state.get('fetched_title', "")
     default_text = st.session_state.get('fetched_text', "")
+    
+    # URL Index Chapter Selection
+    if 'parsed_index_chapters' in st.session_state and st.session_state['parsed_index_chapters']:
+        st.caption("Scraped fiction index. Select a chapter to load its text.")
+        index_chapters = st.session_state['parsed_index_chapters']
+        chapter_opts = {i: c['title'] for i, c in enumerate(index_chapters)}
+        selected_idx_url = st.selectbox(
+            "Select Chapter from Fiction Index", 
+            options=list(chapter_opts.keys()), 
+            format_func=lambda x: chapter_opts[x]
+        )
+        
+        col1, col2 = st.columns([1, 3])
+        if col1.button("Load Selected Chapter"):
+            with st.spinner("Fetching chapter text..."):
+                from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                try:
+                    scraper = RoyalRoadScraper()
+                    scraped_data = scraper.scrape_chapter(index_chapters[selected_idx_url]['url'])
+                    st.session_state['fetched_title'] = scraped_data['title']
+                    st.session_state['fetched_text'] = scraped_data['text']
+                    # Use rerun to immediately show the text in the text_area below
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to load chapter text: {e}")
+                    
+    # EPUB Chapter Selection
+    elif 'parsed_epub_chapters' in st.session_state and st.session_state['parsed_epub_chapters']:
+        chapters = st.session_state['parsed_epub_chapters']
+        chapter_opts = {i: c['title'] for i, c in enumerate(chapters)}
+        selected_idx = st.selectbox(
+            "Select Chapter from EPUB", 
+            options=list(chapter_opts.keys()), 
+            format_func=lambda x: chapter_opts[x]
+        )
+        if selected_idx is not None:
+            default_title = chapters[selected_idx]['title']
+            default_text = chapters[selected_idx]['text']
     
     chapter_title = st.text_input("Chapter Title", value=default_title, placeholder="e.g., Chapter 1: The Beginning")
     chapter_text = st.text_area("Chapter Text", value=default_text, height=300)
@@ -156,7 +224,7 @@ elif page == "Ingestion Engine":
     extractor_choice = st.radio(
         "Character Extraction Method",
         ["spaCy (Fast, Rule-based)", "LLM (Smart, Context-aware)"],
-        index=0,
+        index=1,
         horizontal=True
     )
     extractor_method = "llm" if "LLM" in extractor_choice else "spacy"
@@ -231,12 +299,67 @@ elif page == "Audio Hub":
     import yaml
     import asyncio
     
-    _, runtime_db = load_runtime(active_story_uuid)
+    chapter_counter, runtime_db = load_runtime(active_story_uuid)
+    
+    st.subheader("📚 Full Chapter Audiobook")
+    st.markdown("Synthesize a dynamic, multi-voice audiobook for a complete chapter. (Bypasses graduation threshold)")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        chapter_to_sync = st.number_input("Chapter Number", min_value=1, max_value=chapter_counter if chapter_counter > 0 else 1, value=1)
+        
+    if st.button("Synthesize Entire Chapter", type="primary"):
+        if chapter_counter == 0:
+            st.warning("No chapters processed yet.")
+        else:
+            with st.spinner(f"Extracting LLM script and rendering audio for Chapter {chapter_to_sync}..."):
+                from app.services.audiobook_generator import generate_chapter_audiobook
+                try:
+                    result = generate_chapter_audiobook(active_story_uuid, chapter_to_sync)
+                    
+                    if result:
+                        out_path, vtt_path = result
+                        if os.path.exists(out_path) and os.path.exists(vtt_path):
+                            st.success(f"Audiobook for Chapter {chapter_to_sync} complete!")
+                            
+                            # Streamlit's native st.audio doesn't support VTT subtitles nicely.
+                            # We'll serve the files via base64 in a custom HTML5 video/audio tag
+                            import base64
+                            
+                            with open(out_path, "rb") as f:
+                                audio_bytes = f.read()
+                            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                            
+                            with open(vtt_path, "r", encoding="utf-8") as f:
+                                vtt_text = f.read()
+                            vtt_b64 = base64.b64encode(vtt_text.encode('utf-8')).decode('utf-8')
+                            
+                            html_player = f"""
+                            <div style="background-color: #1e1e2e; padding: 20px; border-radius: 10px; margin-top: 10px;">
+                                <h4 style="color: white; margin-bottom: 15px;">Chapter {chapter_to_sync} Playback</h4>
+                                <video controls style="width: 100%; height: 60px; background-color: #000; border-radius: 5px;" name="media">
+                                    <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mpeg">
+                                    <track label="English" kind="subtitles" srclang="en" src="data:text/vtt;base64,{vtt_b64}" default>
+                                    Your browser does not support the audio element or WebVTT.
+                                </video>
+                                <p style="color: #aaa; font-size: 12px; margin-top: 10px;">Turn on Closed Captions (CC) in the player to see the synchronized text.</p>
+                            </div>
+                            """
+                            st.components.v1.html(html_player, height=150)
+                        else:
+                            st.error("Audiobook generation failed. Files not found.")
+                    else:
+                        st.error("Audiobook generation failed. Please check the terminal for FFMPEG or LLM errors.")
+                except Exception as e:
+                    st.error(f"Error generating audiobook: {e}")
+                    
+    st.divider()
+    st.subheader("🎙️ Character Voice Testing")
     
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
         
-    graduated_chars = [c for c in runtime_db.values() if c.voice_id is not None]
+    graduated_chars = [c for c in runtime_db.values() if c.confidence_score >= 0.75 or c.voice_id is not None]
     
     if not graduated_chars:
         st.info("No characters have graduated to the Main Cast yet. Process more chapters to trigger graduation!")
@@ -263,6 +386,11 @@ elif page == "Audio Hub":
                 filename = os.path.join(output_dir, f"ui_test_{char.character_id}.wav")
                 
                 try:
+                    # Provide voice_id if None
+                    if not voice:
+                        from adapters.tts_adapter import assign_voice
+                        voice = assign_voice(char)
+                        
                     if asyncio.iscoroutinefunction(tts.generate_audio):
                         asyncio.run(tts.generate_audio(test_text, voice, filename))
                     else:
@@ -276,12 +404,13 @@ elif page == "Knowledge Graph":
     st.header("Knowledge Graph")
     st.markdown("Interactive visualization of the character relationship graph built from ingested chapters.")
     
-    from adapters.graph_adapter import get_graph_engine
+    from adapters.graph_adapter import GraphProvider
     from pyvis.network import Network
     import streamlit.components.v1 as components
     import tempfile
     
-    graph_engine = get_graph_engine(active_story_uuid)
+    # Force load latest graph from disk
+    graph_engine = GraphProvider(active_story_uuid)
     G = graph_engine.graph
     
     if len(G.nodes) == 0:
@@ -330,3 +459,224 @@ elif page == "Knowledge Graph":
         col1.metric("Character Nodes", len(char_nodes))
         col2.metric("Event Nodes", len(event_nodes))
 
+elif page == "Story Q&A":
+    st.header("Story Q&A (Time-CoT RAG)")
+    st.markdown("Ask temporal and contextual questions about the story. The engine uses DyG-RAG principles (Chronological Dynamic Event Units) to reason through the character timelines.")
+    
+    with st.form("qna_form"):
+        query = st.text_input("Ask a question about the story:", placeholder="What happen to Lucian after he fought the troll?")
+        submit = st.form_submit_button("Ask")
+        
+        if submit and query:
+            with st.spinner("Traversing the event graph and reasoning through the timeline..."):
+                from app.services.rag import query_story
+                try:
+                    answer = query_story(active_story_uuid, query)
+                    st.success("Analysis Complete")
+                    st.markdown("### Answer")
+                    st.write(answer)
+                except Exception as e:
+                    st.error(f"Failed to generate answer: {e}")
+
+elif page == "Evaluation":
+    import json, time, math, os, tempfile
+    import streamlit as st
+
+    st.header("Phase 6 — Evaluation Harness")
+    st.markdown(
+        "Runs the four quantitative metrics from the Review 1 deck against the gold-standard "
+        "annotation in `dataset/gold_standard.json`."
+    )
+
+    GOLD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset", "gold_standard.json")
+
+    if not os.path.exists(GOLD_PATH):
+        st.error(f"Gold-standard file not found: `{GOLD_PATH}`")
+        st.stop()
+
+    with open(GOLD_PATH, "r", encoding="utf-8") as _f:
+        gold_data = json.load(_f)
+
+    run_llm = st.checkbox("Include LLM extraction metric (makes API call)", value=False)
+    run_tts = st.checkbox("Include TTS Real-Time Factor metric", value=True)
+
+    if st.button("▶ Run Evaluation", type="primary"):
+
+        # ── helpers ──────────────────────────────────────────────────────────
+        def prf(predicted, gold):
+            ps = {x.lower() for x in predicted}
+            gs = {x.lower() for x in gold}
+            if not ps:
+                return 0.0, 0.0, 0.0
+            p = len(ps & gs) / len(ps)
+            r = len(ps & gs) / len(gs) if gs else 0.0
+            f = (2*p*r/(p+r)) if (p+r) else 0.0
+            return p, r, f
+
+        text       = gold_data["text"]
+        gold_chars = gold_data["gold_characters"]
+        gold_world = gold_data["gold_world_terms"]
+        gold_all   = gold_chars + gold_world
+
+        # ── Metric 1 — Entity P/R/F1 ─────────────────────────────────────────
+        with st.expander("📐 Metric 1 — Entity Precision / Recall / F1", expanded=True):
+            from app.services.extraction import extract_chapter_intelligence
+
+            t0 = time.perf_counter()
+            res_spacy  = extract_chapter_intelligence(text)
+            spacy_ms   = (time.perf_counter() - t0) * 1000
+            sc = res_spacy.get("active_character_names", [])
+            sw = res_spacy.get("active_world_terms", [])
+
+            rows = []
+            for label, pred, gold in [
+                ("Characters (spaCy)",  sc, gold_chars),
+                ("World Terms (spaCy)", sw, gold_world),
+                ("Combined (spaCy)",    sc+sw, gold_all),
+            ]:
+                p, r, f = prf(pred, gold)
+                rows.append({"Label": label, "Precision": f"{p:.0%}", "Recall": f"{r:.0%}", "F1": f"{f:.0%}"})
+
+            if run_llm:
+                from app.services.extraction import extract_chapter_intelligence_llm
+                with st.spinner("Calling LLM…"):
+                    try:
+                        t0 = time.perf_counter()
+                        res_llm  = extract_chapter_intelligence_llm(text)
+                        llm_ms   = (time.perf_counter() - t0) * 1000
+                        lc = res_llm.get("active_character_names", [])
+                        lw = res_llm.get("active_world_terms", [])
+                        for label, pred, gold in [
+                            ("Characters (LLM)",  lc, gold_chars),
+                            ("World Terms (LLM)", lw, gold_world),
+                            ("Combined (LLM)",    lc+lw, gold_all),
+                        ]:
+                            p, r, f = prf(pred, gold)
+                            rows.append({"Label": label, "Precision": f"{p:.0%}", "Recall": f"{r:.0%}", "F1": f"{f:.0%}"})
+                    except Exception as e:
+                        st.warning(f"LLM extraction failed: {e}")
+
+            import pandas as pd
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.caption(f"spaCy extraction took {spacy_ms:.0f} ms")
+
+        # ── Metric 2 — Graph Latency ──────────────────────────────────────────
+        with st.expander("⚡ Metric 2 — Graph Traversal Latency", expanded=True):
+            import networkx as nx
+            import app.core.story_manager as sm_mod
+            from adapters.graph_adapter import GraphProvider
+
+            lat_rows = []
+            with tempfile.TemporaryDirectory() as tmpd:
+                orig = sm_mod.StoryManager.DATA_DIR
+                sm_mod.StoryManager.DATA_DIR = tmpd
+                try:
+                    for n in [10, 50, 100, 500, 1000]:
+                        gp = GraphProvider("bench")
+                        for i in range(n):
+                            gp.graph.add_node(f"c{i}", type="character", last_seen_chapter=i)
+                            ev = f"e{i}"
+                            gp.graph.add_node(ev, type="event", chapter_id=i)
+                            gp.graph.add_edge(f"c{i}", ev, relation="participant", chapter_id=i)
+                            gp.graph.add_edge(ev, f"c{i}", relation="featured",    chapter_id=i)
+                        t0 = time.perf_counter()
+                        gp.get_character_importance("c0", current_chapter=n, decay_rate=0.05)
+                        ms = (time.perf_counter() - t0) * 1000
+                        lat_rows.append({"Graph Size (nodes)": n*2, "Lookup Latency (ms)": f"{ms:.1f}", "Target": "< 500 ms", "Pass": "✓" if ms < 500 else "✗"})
+                        gp.graph = nx.DiGraph()
+                finally:
+                    sm_mod.StoryManager.DATA_DIR = orig
+
+            st.dataframe(pd.DataFrame(lat_rows), use_container_width=True, hide_index=True)
+
+        # ── Metric 3 — TTS RTF ───────────────────────────────────────────────
+        if run_tts:
+            with st.expander("🔊 Metric 3 — TTS Real-Time Factor (RTF)", expanded=True):
+                BENCH_TEXT = (
+                    "The warrior stood at the edge of the realm, his voice echoing across the valley. "
+                    "He had journeyed for seven years to reach this moment."
+                )
+                approx_dur = len(BENCH_TEXT.split()) / 150.0
+
+                tried = False
+                for eng in ["kokoro", "edge_tts"]:
+                    try:
+                        from adapters.tts_adapter import get_tts_engine
+                        tts = get_tts_engine(eng)
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                            out_p = tf.name
+                        import asyncio, inspect
+                        with st.spinner(f"Synthesizing with {eng}…"):
+                            t0 = time.perf_counter()
+                            if inspect.iscoroutinefunction(tts.generate_audio):
+                                asyncio.run(tts.generate_audio(BENCH_TEXT, None, out_p))
+                            else:
+                                tts.generate_audio(BENCH_TEXT, None, out_p)
+                            wall = time.perf_counter() - t0
+                        rtf = wall / approx_dur
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Engine", eng)
+                        c2.metric("RTF", f"{rtf:.3f}", delta="< 1.0 target", delta_color="normal" if rtf < 1.0 else "inverse")
+                        c3.metric("Gen Time", f"{wall:.2f}s")
+                        try: os.remove(out_p)
+                        except OSError: pass
+                        tried = True
+                        break
+                    except Exception as e:
+                        st.caption(f"{eng} unavailable: {e}")
+                if not tried:
+                    st.warning("No TTS engine available. Install kokoro or edge-tts.")
+
+        # ── Metric 4 — Spearman ρ ────────────────────────────────────────────
+        with st.expander("📊 Metric 4 — Spearman ρ Rank Correlation", expanded=True):
+            import app.core.story_manager as sm_mod
+            from adapters.graph_adapter import _graph_instances
+
+            expected_rank = gold_data.get("expected_rank_order", [])
+
+            def to_id(n):
+                return n.lower().replace(" ", "_").replace("'", "")
+
+            expected_ids = [to_id(n) for n in expected_rank]
+
+            with tempfile.TemporaryDirectory() as tmpd:
+                orig = sm_mod.StoryManager.DATA_DIR
+                sm_mod.StoryManager.DATA_DIR = tmpd
+                _graph_instances.clear()
+                try:
+                    from app.services.ingest import ingest_chapter, load_runtime
+                    story_id = sm_mod.StoryManager.create_story("eval_rho")
+                    ingest_chapter(story_id, "Gold Chapter", text, extractor="spacy")
+                    _, rdb = load_runtime(story_id)
+                    computed_sorted = sorted(rdb.values(), key=lambda c: c.confidence_score, reverse=True)
+                    computed_rank   = [c.character_id for c in computed_sorted]
+
+                    common = [x for x in expected_ids if x in computed_rank]
+                    n_c = len(common)
+
+                    def spearman(a, b):
+                        if len(a) < 2: return float("nan")
+                        pa = {x: i for i, x in enumerate(a)}
+                        pb = {x: i for i, x in enumerate(b)}
+                        d2 = sum((pa[x] - pb[x])**2 for x in a if x in pb)
+                        n  = len(a)
+                        return 1 - (6*d2)/(n*(n**2-1))
+
+                    rho = spearman(expected_ids, computed_rank)
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Spearman ρ", f"{rho:.3f}" if not math.isnan(rho) else "N/A")
+                    c2.metric("Common Chars Compared", n_c)
+                    c3.metric("Target", "ρ ≥ 0.70")
+
+                    rank_df = pd.DataFrame({
+                        "Human Rank":    expected_rank,
+                        "Computed ID":   computed_rank[:len(expected_rank)]
+                    })
+                    st.dataframe(rank_df, use_container_width=True, hide_index=False)
+
+                except Exception as e:
+                    st.error(f"Spearman metric failed: {e}")
+                finally:
+                    _graph_instances.clear()
+                    sm_mod.StoryManager.DATA_DIR = orig

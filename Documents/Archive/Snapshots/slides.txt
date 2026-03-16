@@ -1,0 +1,171 @@
+
+--- Slide 1 ---
+Webnovel Architect
+Neuro-Symbolic Story Intelligence
+Turning evolving web novels into living audio dramas using Dynamic Graph RAG (DyG-RAG) — a zero-GPU modular system that thinks in graphs and speaks in character.
+
+--- Slide 2 ---
+The Problem with Static Audiobooks
+Why Traditional Pipelines Fail
+Serial web novels are living documents. Characters emerge, shift in prominence, and evolve across hundreds of chapters — none of which exist when production begins.
+
+
+Evolving Context
+Static TTS assignment cannot adapt to sprawling, emergent casts.
+
+
+GPU Barrier
+High-quality local LLMs and audio synthesis demand expensive hardware, limiting accessibility.
+
+
+No Memory
+Traditional pipelines treat each chapter in isolation — no persistent character intelligence.
+
+--- Slide 3 ---
+Core Concept & Design Goals
+
+
+Dynamic Intelligence
+Track characters and events across chapters via a persistent, queryable story graph.
+
+
+Intelligent Casting
+PageRank-based "Graduation" assigns premium voices only to narratively important characters.
+
+
+Zero-GPU Accessibility
+Runs on a standard laptop using Kokoro ONNX, EdgeTTS, and LiteLLM API models.
+
+
+Neuro-Symbolic Hybrid
+Neural LLMs extract events; symbolic DAGs (NetworkX) provide persistent, structured memory.
+
+--- Slide 4 ---
+System Architecture
+An event-centric DyG-RAG pipeline — four composable modules, each with a single responsibility.
+The Eye
+LLM ingests raw text into entities and events
+The Brain
+NetworkX story graph persists nodes and edges as JSON
+The Director
+PageRank reasoning α=0.85; selects central characters
+The Voice
+TTS: Kokoro local for leads, EdgeTTS for background
+The Adapter Pattern underpins each module — abstract base classes for LLMProvider, TTSProvider, and GraphProvider guarantee extensibility without coupling.
+
+--- Slide 5 ---
+End-to-End Workflow
+
+Ingest
+Raw chapter text passed to ingest_chapter_text(), split at 4,000-char context boundaries.
+
+Extract
+LiteLLM identifies speakers, emotions, and narrative events — e.g., "Aria confronts Thorne."
+
+Graph Update
+Character nodes and event edges are upserted into the NetworkX DAG, encoding the new chapter state.
+
+Graduate
+get_character_importance() runs PageRank; scores above 0.15 promote to main cast.
+
+Output
+Canonical Markdown wiki profiles and .wav audio files are generated per character tier.
+
+--- Slide 6 ---
+Development Process & SDLC
+Hybrid SDLC — Spiral + Agile
+Architecture evolves through risk-driven Spiral research loops. Functional milestones are delivered as Agile sprints, enabling continuous demonstration at each phase boundary.
+
+
+
+Phase 0 — Requirements
+Defined the Neuro-Symbolic problem space; literature review.
+
+
+Phases 1 & 2 — Prototype
+Regex/heuristic prototype and basic entity wiki.
+
+
+Phase 3 — Graph Core ✅
+NetworkX event graph, LLM extraction, PageRank scoring.
+
+
+Phase 4 — Audio (Current)
+Kokoro + EdgeTTS dual synthesis integration.
+
+
+Phases 6 & 7 — Validate & Deploy
+Temporal weighting experiments; demo submission package.
+
+Branching
+Trunk-based development — direct commits to main optimise velocity for a solo research model.
+
+Testing
+verify_modular.py runs the full mocked chain end-to-end, preventing regressions across every sprint.
+
+--- Slide 7 ---
+Current Status — Phase 4
+100%
+Pipeline Complete
+Ingest → Graph → PageRank → Audio is fully traversable today.
+82M
+Kokoro Params
+CPU-friendly ONNX model — no GPU required.
+0.15
+Graduation Score
+PageRank threshold separating main cast from background characters.
+α=0.85
+PageRank Damping
+Standard damping factor applied across the character–event graph.
+
+In Progress: Voice Management (attribute-based voice ID assignment) · Temporal edge weighting · Alias resolution via spaCy coreference
+
+--- Slide 8 ---
+Technology Stack
+Core Runtime
+Python 3.9+ with a Switchboard/Adapter Pattern. Abstract base classes for each provider ensure plug-and-play extensibility across /adapters, /core, and /app.
+Graph & Memory
+NetworkX directed acyclic graph with JSON serialisation (story_graph.json). KuzuDB migration planned for 1,000+ chapter scalability.
+AI & Synthesis
+LiteLLM (Gemini Flash default) for extraction. Kokoro ONNX for premium local TTS; Microsoft EdgeTTS as cloud fallback for background cast.
+
+--- Slide 9 ---
+Challenges & Risks
+
+
+JSON vs. KuzuDB
+JSON persistence enables rapid prototyping and full transparency but will throttle performance beyond ~1,000 chapters. Migration to KuzuDB is scoped but not yet initiated.
+
+
+Static Graduation Threshold
+A hard 0.15 PageRank boundary risks over-promoting characters in dense interaction webs. Adaptive, cast-size-relative thresholds are needed at scale.
+
+
+No Temporal Decay
+Without timestamp-weighted edges, legacy characters retain high PageRank indefinitely — starving newly introduced characters of premium audio resources.
+
+
+Alias Resolution Gap
+"Aria" and "the girl" are treated as separate graph nodes. Absent coreference resolution, the character graph accumulates duplicates over long narratives.
+
+--- Slide 10 ---
+Roadmap & Next Milestones
+
+Voice Assignment Service
+Map dynamic character qualities to specific Kokoro voice IDs — replacing hardcoded test voices.
+
+Temporal Weighting
+Attach chapter timestamps to graph edges; introduce PageRank decay so legacy characters naturally fade.
+
+Alias Resolution
+Integrate a spaCy coreference pipeline to merge alias nodes and eliminate graph duplication.
+
+KuzuDB Migration
+Replace JSON serialisation with KuzuDB to support 100+ chapter production-scale narratives.
+
+Conclusion
+Webnovel Architect has crossed the prototype threshold into a fully verifiable Neuro-Symbolic application — 100% of the extraction → graph → scoring → audio pipeline is traversable today.
+The next milestone: production-readiness for 100+ chapter scale via KuzuDB and temporal graph decay.
+
+Live Demo
+Run python verify_modular.py to traverse the full pipeline end-to-end.

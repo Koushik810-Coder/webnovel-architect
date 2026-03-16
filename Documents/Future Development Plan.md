@@ -15,12 +15,29 @@
 | Phase 3 | Graph-based runtime (NetworkX / KuzuDB) | ✅ Done |
 | Phase 4 | Voice Registry, TTS adapter, persistence | ✅ Done |
 | Phase 5 | Streamlit Web UI Dashboard | ✅ Done |
+| Phase 6 | Experimental Evaluation & Advanced Features | 🔄 Current |
+
+---
+
+## Recently Completed Sprints
+
+### Sprint 1 — spaCy NER Integration
+**Goal**: Replace the regex-based word extractor with a proper Named Entity Recognition model.
+**Status**: ✅ Done (Implemented alongside LLM standard extraction as a deterministic fallback pipeline)
+
+### Sprint 2 — Temporal Weighting in the Graph
+**Goal**: Make character importance time-aware, not just count-based.
+**Status**: ✅ Done (`chapter_id` based Temporal Decay integrated into graph PageRank scoring)
+
+### Sprint 4 — LLM-Powered Structured Extraction
+**Goal**: Replace all heuristics with a single structured LLM call per chapter.
+**Status**: ✅ Done (`litellm` + Gemini Flash integration implemented in `core/ingestion.py`)
 
 ---
 
 ## Upcoming Sprints
 
-### Sprint 1 — spaCy NER Integration ⭐ *Recommended Next*
+### Sprint 3 — Alias Resolution ⭐ *Recommended Next*
 
 **Goal**: Replace the regex-based word extractor with a proper Named Entity Recognition model.
 
@@ -68,18 +85,7 @@
 
 ---
 
-### Sprint 4 — LLM-Powered Structured Extraction
-
-**Goal**: Replace all heuristics with a single structured LLM call per chapter.
-
-**Why**: `litellm` + Gemini Flash (already configured in `config.yaml`) can return JSON-structured character, event, and relationship data in one pass—far more accurate than regex.
-
-**Tasks**:
-- Write a prompt template: "Extract characters, events, and relationships from the following chapter. Return as JSON."
-- Parse the response with Pydantic validation
-- Use this as the primary path in `extraction.py`, keep regex as fallback
-
-**Effort**: Medium | **Impact**: Very High
+**Effort**: High | **Impact**: Very High
 
 ---
 
@@ -102,9 +108,6 @@
 ## Recommended Priority Order
 
 ```
-Sprint 1: spaCy NER      →  Low effort, immediately improves quality
-Sprint 4: LLM Extraction →  Medium effort, replaces ALL heuristics at once
-Sprint 2: Temporal Decay →  Medium effort, smarter graduation
 Sprint 3: Alias Resolve  →  High effort, real-world readiness
 Sprint 5: Full Audio     →  High effort, showcase deliverable
 ```
