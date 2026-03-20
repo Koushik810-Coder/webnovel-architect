@@ -26,9 +26,11 @@ class RoyalRoadScraper(BaseScraper):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"API Fallback: Failed to connect to Royal Road to scrape the chapter. The site might be down, rate-limiting your IP, or the URL is invalid. Details: {str(e)}")
         soup = BeautifulSoup(response.text, "html.parser")
         
         # 1. Extract Title
@@ -70,9 +72,11 @@ class RoyalRoadScraper(BaseScraper):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"API Fallback: Failed to connect to Royal Road to scrape the fiction index. The site might be down or rate-limiting. Details: {str(e)}")
         soup = BeautifulSoup(response.text, "html.parser")
         chapters = []
         

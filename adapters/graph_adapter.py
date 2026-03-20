@@ -37,6 +37,68 @@ class GraphProvider:
                 self.graph.add_edge(event_id, entity, relation="featured", chapter_id=chapter_id)
         self.save_graph()
 
+    def add_causal_edge(self, source_event_id: str, target_event_id: str, relation_type: str = "causes"):
+        """Adds a directed causal edge between two event nodes."""
+        if self.graph.has_node(source_event_id) and self.graph.has_node(target_event_id):
+            if self.graph.nodes[source_event_id].get("type") == "event" and self.graph.nodes[target_event_id].get("type") == "event":
+                self.graph.add_edge(source_event_id, target_event_id, relation=relation_type)
+                self.save_graph()
+
+    def get_character_events(self, name: str) -> list:
+        """Returns a chronological list of all events a character participated in."""
+        if not self.graph.has_node(name):
+            return []
+            
+        events = []
+        for u, v, data in self.graph.out_edges(name, data=True):
+            if data.get("relation") == "participant" and self.graph.has_node(v):
+                event_data = self.graph.nodes[v]
+                if event_data.get("type") == "event":
+                    events.append({
+                        "id": v,
+                        "description": event_data.get("description", ""),
+                        "chapter_id": event_data.get("chapter_id", 0)
+                    })
+                    
+        # Sort chronologically by chapter_id
+        events.sort(key=lambda x: x["chapter_id"])
+        return events
+
+    def get_event_chain(self, start_event_id: str, max_depth: int = 10) -> list:
+        """
+        Traverses 'causes' edges to return a causal chain of events originating from the start node.
+        Returns a list of event dictionaries, ordered by causality.
+        """
+        if not self.graph.has_node(start_event_id) or self.graph.nodes[start_event_id].get("type") != "event":
+            return []
+            
+        chain = []
+        current = start_event_id
+        depth = 0
+        
+        while current and depth < max_depth:
+            # Add current event to chain
+            event_data = self.graph.nodes[current]
+            chain.append({
+                "id": current,
+                "description": event_data.get("description", ""),
+                "chapter_id": event_data.get("chapter_id", 0)
+            })
+            
+            # Find the next event caused by this one
+            next_event = None
+            for u, v, data in self.graph.out_edges(current, data=True):
+                if data.get("relation") == "causes" and self.graph.has_node(v) and self.graph.nodes[v].get("type") == "event":
+                    # Avoid cycles
+                    if not any(e["id"] == v for e in chain):
+                        next_event = v
+                        break # Only following the first causal link for this simple chain extraction
+                        
+            current = next_event
+            depth += 1
+            
+        return chain
+
     def get_character_importance(self, name: str, current_chapter: int = 0, decay_rate: float = 0.05) -> float:
         """
         Calculates importance based on PageRank.

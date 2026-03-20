@@ -27,11 +27,17 @@ stucture.txt
 Documents/commits*.txt
 Documents/slides.txt
 # Large Models
+models/
 *.onnx
+*.bin
+*.npy
 
 # Temp Data
 _temp_voxnovel/
 output/
+tb*.txt
+cancel_audio.flag
+*.log
 
 # Test Outputs
 *_output.txt
@@ -77,25 +83,3 @@ Documents/Review_*.md
 Documents/*.pdf
 Documents/*.pptx
 Documents/Archive/
-
-
-# Generated Audio
-generated_audio/
-*.mp3
-*.wav
-
-# Streamlit
-.streamlit/
-
-# Eggs / Build
-*.egg-info/
-dist/
-build/
-
-# Test temp files
-test_out.txt
-err.txt
-result.json
-
-# Dataset (local gold standard)
-dataset/

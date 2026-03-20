@@ -44,7 +44,8 @@ def query_story(story_uuid: str, query: str, model: str = "gemini/gemini-2.5-fla
             
         # Sort characters by their total degree (number of connected events)
         sorted_chars = sorted(char_nodes, key=lambda c: graph.graph.degree(c), reverse=True)
-        top_chars = sorted_chars[:5]
+        import itertools
+        top_chars = list(itertools.islice(sorted_chars, 5))
         
         for c in top_chars:
             query_entities.add(c)
@@ -65,7 +66,7 @@ def query_story(story_uuid: str, query: str, model: str = "gemini/gemini-2.5-fla
                     seen_events.add(event_id)
                     event_data = graph.graph.nodes[event_id]
                     # Also find who else was in this event
-                    involved = [v for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[v].get("type") == "character"]
+                    involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
                     
                     retrieved_events.append({
                         "chapter_id": event_data.get("chapter_id", 0),
@@ -119,4 +120,11 @@ Reason through the context chronologically and then provide a clear, narrative a
 
     # 5. LLM Generation
     response = analyze_text(prompt, model=model)
+    
+    # Primary model fallback to Groq to prevent RAG downtime
+    if response and response.startswith("API Fallback:") and not model.startswith("groq"):
+        print(f"[RAG] Primary model {model} failed. Falling back to Groq as a safeguard...")
+        fallback_model = "groq/llama-3.1-8b-instant"
+        response = analyze_text(prompt, model=fallback_model)
+        
     return response

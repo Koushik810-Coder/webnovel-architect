@@ -1,3 +1,4 @@
+# pyre-unsafe
 import os
 import json
 import asyncio
@@ -9,7 +10,18 @@ import yaml
 
 
 def _run_async(coro):
-    """Run an async coroutine safely, whether or not an event loop is already running."""
+    """
+    Safely executes an asynchronous coroutine, adapting to whether an event loop is already running.
+    
+    This is useful for bridging async code with synchronous contexts (like Streamlit callbacks)
+    that may or may not already have an active event loop.
+        
+    Args:
+        coro: The async coroutine object to run.
+        
+    Returns:
+        The result of the wrapped coroutine execution.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -20,15 +32,30 @@ def _run_async(coro):
         # Create a brand-new loop in a background thread.
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, coro)
+            future = pool.submit(lambda c=coro: asyncio.run(c))
             return future.result()
     else:
         return asyncio.run(coro)
 
 
-def generate_chapter_audiobook(story_uuid: str, chapter_id: int):
-    """Generate a full-chapter audiobook by splitting text into narrator/dialogue
-    segments, synthesizing each with TTS, and stitching via FFmpeg."""
+def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "edge_tts"):
+    """
+    Generates a full-chapter MP3 audiobook.
+    
+    This pipeline extracts a script separating narrator and character dialogue using an LLM,
+    assigns consistent voices to characters using the project's runtime configuration, generates
+    audio chunks for each script segment via the requested TTS engine, and stitches them
+    alongside VTT subtitles using FFmpeg.
+    
+    Args:
+        story_uuid (str): The unique identifier for the story.
+        chapter_id (int): The ID of the chapter to generate audio for.
+        engine (str): The TTS engine to use ('edge_tts' or 'kokoro').
+        
+    Returns:
+        Optional[Tuple[str, str]]: Paths to the final compiled audio (MP3) and subtitle (VTT)
+            files if successful, otherwise None.
+    """
 
     # ── 1. Load Chapter Text ──────────────────────────────────────────────
     chapter_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(chapter_id))
@@ -40,11 +67,38 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int):
         chapter_text = f.read()
 
     # ── 2. Extract Script via LLM ─────────────────────────────────────────
-    print("[Audiobook] Extracting script from chapter text via LLM...")
-    prompt = f"""
+    script_path = os.path.join(chapter_dir, "cached_script.json")
+    if os.path.exists(script_path):
+        print(f"[Audiobook] Loading cached script from {script_path}")
+        with open(script_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
+    else:
+        # Chunk the chapter to avoid LLM output token limits and ensure full coverage
+        MAX_CHAR_CHUNK = 6000
+        paragraphs = chapter_text.split('\n\n')
+        text_chunks = []
+        current_chunk = ""
+        for p in paragraphs:
+            if len(current_chunk) + len(p) < MAX_CHAR_CHUNK:
+                current_chunk += p + "\n\n"
+            else:
+                if current_chunk:
+                    text_chunks.append(current_chunk.strip())
+                current_chunk = p + "\n\n"
+        if current_chunk:
+            text_chunks.append(current_chunk.strip())
+
+        if not text_chunks:
+            text_chunks = [chapter_text]
+
+        full_script = []
+        
+        for idx, chunk in enumerate(text_chunks):
+            print(f"[Audiobook] Extracting script from chunk {idx+1}/{len(text_chunks)} via LLM...")
+            prompt = f"""
 Convert this chapter text into an audiobook script. Break the text into logical segments.
 For each segment, determine if it is narration (spoken by the narrator) or dialogue (spoken by a specific character).
-Ensure every word from the text is included in a segment so the entire chapter is narrated seamlessly.
+Ensure every word from the text is included in a segment so the entire text is narrated seamlessly.
 
 Return a JSON object with a single list 'script'.
 Each item in the list should be an object: {{"speaker": "Narrator" or "Character Name", "text": "The actual text to read"}}
@@ -52,54 +106,66 @@ Each item in the list should be an object: {{"speaker": "Narrator" or "Character
 For dialogue, try to guess the character speaking if it is obvious from context. If it is narration, use "Narrator".
 
 Chapter Text:
-{chapter_text[:6000]}
+{chunk}
 """
+            try:
+                script_res = analyze_text_json(prompt)
+                
+                # Check if default LLM hit rate limits and fell back to emitting an error dict
+                if "error" in script_res:
+                    print(f"[Audiobook] Primary LLM failed for chunk {idx+1}. Trying fallback to Gemini...")
+                    script_res = analyze_text_json(prompt, model="gemini/gemini-2.5-flash")
+                
+                script_list = script_res.get("script", [])
+                if not script_list:
+                    raise ValueError("LLM returned empty script list")
+                full_script.extend(script_list)
+            except Exception as e:
+                raise RuntimeError(f"LLM extraction completely failed for chunk {idx+1}. Please verify your API keys and internet connection, or try again later. Details: {e}")
 
-    try:
-        script_res = analyze_text_json(prompt)
-        script = script_res.get("script", [])
-        if not script:
-            raise ValueError("LLM returned empty script list")
-    except Exception as e:
-        print(f"[Audiobook] LLM script extraction failed ({e}); falling back to single narrator block.")
-        # Fallback: narrate the whole chapter in one go (truncate for safety)
-        script = [{"speaker": "Narrator", "text": chapter_text[:3000]}]
-
-    print(f"[Audiobook] Script has {len(script)} segments.")
+        script = full_script
+        print(f"[Audiobook] Script has {len(script)} segments total. Saving cache...")
+        with open(script_path, "w", encoding="utf-8") as f:
+            json.dump(script, f, indent=4)
 
     # ── 3. Load Runtime for character voices ──────────────────────────────
     _, runtime_db = load_runtime(story_uuid)
 
-    # We only use EdgeTTS for everything (reliable, free, no model files needed)
-    import edge_tts
+    from adapters.tts_adapter import get_tts_engine
+    tts_engine_obj = get_tts_engine(engine)
 
-    NARRATOR_VOICE = "en-US-GuyNeural"
-    # A small pool of Edge voices for characters that don't have one assigned
-    CHARACTER_VOICES = [
-        "en-US-AriaNeural",
-        "en-US-JennyNeural",
-        "en-US-DavisNeural",
-        "en-US-TonyNeural",
-        "en-GB-SoniaNeural",
-        "en-GB-RyanNeural",
-    ]
+    if engine == "kokoro":
+        NARRATOR_VOICE = "am_adam"
+        CHARACTER_VOICES = ["af_bella", "af_nicole", "af_sarah", "am_michael", "bm_george", "bf_emma"]
+    else:
+        NARRATOR_VOICE = "en-US-GuyNeural"
+        CHARACTER_VOICES = [
+            "en-US-AriaNeural",
+            "en-US-JennyNeural",
+            "en-US-DavisNeural",
+            "en-US-TonyNeural",
+            "en-GB-SoniaNeural",
+            "en-GB-RyanNeural",
+        ]
     _voice_assignments: dict = {}  # speaker name -> edge voice
-    _voice_idx = 0
+    _voice_idx = [0]
 
     def _get_voice_for_speaker(speaker: str) -> str:
-        nonlocal _voice_idx
         if speaker == "Narrator":
             return NARRATOR_VOICE
 
         char_id = normalize_id(speaker)
-        # Check if the runtime already has a voice
+        # Check if the runtime already has a voice compatible with current engine
         if char_id in runtime_db and runtime_db[char_id].voice_id:
-            return runtime_db[char_id].voice_id
+            v_id = runtime_db[char_id].voice_id
+            is_edge = v_id.startswith("en-")
+            if (engine == "edge_tts" and is_edge) or (engine == "kokoro" and not is_edge):
+                return v_id
 
         # Assign a consistent voice from the pool
         if speaker not in _voice_assignments:
-            _voice_assignments[speaker] = CHARACTER_VOICES[_voice_idx % len(CHARACTER_VOICES)]
-            _voice_idx += 1
+            _voice_assignments[speaker] = CHARACTER_VOICES[_voice_idx[0] % len(CHARACTER_VOICES)]
+            _voice_idx[0] += 1
         return _voice_assignments[speaker]
 
     # ── 4. Synthesize Audio Chunks ────────────────────────────────────────
@@ -161,6 +227,10 @@ Chapter Text:
     chunk_vtts = []
 
     for i, segment in enumerate(script):
+        if os.path.exists("cancel_audio.flag"):
+            print("[Audiobook] Cancellation requested.")
+            return None
+            
         speaker = segment.get("speaker", "Narrator")
         text = segment.get("text", "").strip()
         if not text:
@@ -172,10 +242,9 @@ Chapter Text:
 
         print(f"  [{i+1}/{len(script)}] {speaker} ({voice}): {text[:40]}...")
         
-        # We need to capture the submaker output. EdgeTTS Communicate allows this.
-        from edge_tts.submaker import SubMaker
-        
-        async def _synthesize_with_subs(t, v, p, p_vtt):
+        async def _synthesize_edge_tts(t, v, p, p_vtt):
+            import edge_tts
+            from edge_tts.submaker import SubMaker
             comm = edge_tts.Communicate(t, v)
             submaker = SubMaker()
             with open(p, "wb") as file:
@@ -183,23 +252,46 @@ Chapter Text:
                     if chunk["type"] == "audio":
                         file.write(chunk["data"])
                     elif chunk["type"] == "WordBoundary":
-                        submaker.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
-            
+                        submaker.feed(chunk)
             with open(p_vtt, "w", encoding="utf-8") as file:
-                file.write(submaker.generate_subs())
+                file.write(submaker.get_srt().replace(',', '.'))
 
-        try:
-            _run_async(_synthesize_with_subs(text, voice, chunk_path, vtt_chunk_path))
-            
-            # Verify the file was actually created
-            if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 0:
-                chunk_files.append(chunk_path)
-                with open(vtt_chunk_path, "r", encoding="utf-8") as f:
-                    chunk_vtts.append(f.read())
-            else:
-                print(f"  [WARN] Chunk {i} produced empty file, skipping.")
-        except Exception as e:
-            print(f"  [ERROR] Failed to generate audio for chunk {i}: {e}")
+        def _synthesize_kokoro(t, v, p, p_vtt):
+            tts_engine_obj.generate_audio(t, v, p)
+            dur = get_audio_duration(p)
+            def _fmt(s):
+                h, m, sec, ms = int(s // 3600), int((s % 3600) // 60), int(s % 60), int((s - int(s)) * 1000)
+                return f"{h:02d}:{m:02d}:{sec:02d}.{ms:03d}"
+            with open(p_vtt, "w", encoding="utf-8") as file:
+                file.write(f"1\n00:00:00.000 --> {_fmt(dur)}\n{t}\n")
+
+        import time
+        max_retries: int = 3 if engine != "kokoro" else 1
+        for attempt in range(max_retries):
+            try:
+                if engine == "kokoro":
+                    _synthesize_kokoro(text, voice, chunk_path, vtt_chunk_path)
+                else:
+                    _run_async(_synthesize_edge_tts(text, voice, chunk_path, vtt_chunk_path))
+                
+                # Verify the file was actually created
+                if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 0:
+                    chunk_files.append(chunk_path)
+                    with open(vtt_chunk_path, "r", encoding="utf-8") as f:
+                        chunk_vtts.append(f.read())
+                    break # Success
+                else:
+                    raise Exception(f"Chunk {i} produced empty file.")
+            except Exception as e:
+                print(f"  [ERROR] Attempt {attempt+1} failed for chunk {i}: {e}")
+                if attempt == max_retries - 1:
+                    with open("tts_debug_errors.log", "a") as dbg_log:
+                        dbg_log.write(f"Chunk {i} failed after {max_retries} attempts: {e}\n")
+                    raise RuntimeError(f"Audio generation failed for chunk {i+1} after {max_retries} attempts. Engine error: {e}")
+                else:
+                    time.sleep(2 * (attempt + 1))
+        
+        time.sleep(0.5) # Gentle rate limiting between chunks
 
     if not chunk_files:
         print("[Audiobook] No audio chunks were generated. Aborting.")
@@ -229,7 +321,7 @@ Chapter Text:
     try:
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            print(f"[Audiobook] FFmpeg stderr:\n{result.stderr[:500]}")
+            print(f"[Audiobook] FFmpeg stderr:\n{result.stderr}")
             return None
             
         print(f"[Audiobook] Audio compilation successful: {final_audio_path}")

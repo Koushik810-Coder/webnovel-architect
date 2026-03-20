@@ -1,12 +1,12 @@
 import os
 import json
 from datetime import datetime
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List, Optional, Callable
 
 from app.core.models.chapter import Chapter
 from app.core.models.character_runtime import CharacterRuntime
 from app.core.models.character_wiki import CharacterWiki
-from app.services.extraction import extract_chapter_intelligence
+from app.services.extraction import extract_chapter_intelligence, extract_chapter_intelligence_llm
 from app.services.wiki import save_character_wiki
 from app.core.graduation import check_graduation_status
 from app.core.story_manager import StoryManager
@@ -19,6 +19,16 @@ def normalize_id(name: str) -> str:
     return name.lower().replace(" ", "_")
 
 def load_runtime(story_uuid: str) -> Tuple[int, Dict[str, CharacterRuntime]]:
+    """
+    Loads the persistent runtime database for characters in a specific story.
+    
+    Args:
+        story_uuid (str): The unique identifier for the story.
+        
+    Returns:
+        Tuple[int, Dict[str, CharacterRuntime]]: The current chapter counter and 
+            a dictionary mapping character IDs to their CharacterRuntime profiles.
+    """
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "runtime_db.json")
     if not os.path.exists(path):
         return 0, {}
@@ -37,6 +47,14 @@ def load_runtime(story_uuid: str) -> Tuple[int, Dict[str, CharacterRuntime]]:
     return chapter_counter, runtime_db
 
 def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, CharacterRuntime]):
+    """
+    Saves the character runtime database and chapter counter to disk.
+    
+    Args:
+        story_uuid (str): The unique identifier for the story.
+        chapter_counter (int): The current chapter count.
+        runtime_db (Dict[str, CharacterRuntime]): Dictionary mapping character IDs to their runtime models.
+    """
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "runtime_db.json")
     
     data = {
@@ -51,6 +69,13 @@ def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, Ch
     StoryManager._touch_updated_at(story_uuid)
 
 def save_chapter(story_uuid: str, chapter: Chapter):
+    """
+    Saves the full text and metadata of a chapter to the file system.
+    
+    Args:
+        story_uuid (str): The unique identifier for the story.
+        chapter (Chapter): The chapter model containing text and metadata to save.
+    """
     chapter_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(chapter.id))
     os.makedirs(chapter_dir, exist_ok=True)
     
@@ -65,7 +90,41 @@ def save_chapter(story_uuid: str, chapter: Chapter):
     with open(os.path.join(chapter_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
+def load_index_state(story_uuid: str) -> Optional[Dict]:
+    """Loads the persisted index state for a story, if it exists."""
+    path = os.path.join(StoryManager.DATA_DIR, story_uuid, "index_state.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+def save_index_state(story_uuid: str, state: Dict):
+    """Saves the index state (e.g., scraped chapters and last ingested index)."""
+    path = os.path.join(StoryManager.DATA_DIR, story_uuid, "index_state.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=4)
+
 def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm", decay_rate: float = 0.05) -> Chapter:
+    """
+    Processes and ingests a single chapter for a given story.
+    
+    This pipeline extracts chapter intelligence, updates relational graphs, tracks
+    character prominence and centrality, handles voice graduations, and saves the
+    ingested content to the filesystem.
+    
+    Args:
+        story_uuid (str): The unique identifier for the story.
+        title (str): The chapter title.
+        text (str): The full raw text of the chapter.
+        extractor (str): The extraction strategy to use (default is "llm").
+        decay_rate (float): The temporal decay rate for graph centrality calculations.
+        
+    Returns:
+        Chapter: The fully processed and persisted Chapter object.
+    """
     chapter_counter, runtime_db = load_runtime(story_uuid)
     
     chapter_counter += 1
@@ -83,7 +142,6 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     
     # 2. Extract Intelligence
     if extractor == "llm":
-        from app.services.extraction import extract_chapter_intelligence_llm
         intelligence = extract_chapter_intelligence_llm(text)
     else:
         intelligence = extract_chapter_intelligence(text)
@@ -102,10 +160,11 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     for name in active_names:
         char_id = normalize_id(name)
         graph.add_character(char_id, {"display_name": name, "last_seen_chapter": chapter_counter})
-        
-    # Create an event to represent the occurrences in this chapter
+            # Create an event to represent the occurrences in this chapter
     events = intelligence.get("events", [])
     if events:
+        # First pass: Create all events and store their generated IDs
+        event_ids: list[str] = []
         for idx, event_data in enumerate(events):
             action_summary = event_data.get("action_summary", "Unknown Event")
             involved_chars = event_data.get("involved_characters", [])
@@ -116,8 +175,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Filter out characters that aren't in active_names to be safe
             valid_chars = [normalize_id(n) for n in involved_chars if normalize_id(n) in [normalize_id(an) for an in active_names]]
             
+            event_id = f"chapter_{chapter_counter}_event_{idx}"
+            event_ids.append(event_id)
+            
             if valid_chars:
-                event_id = f"chapter_{chapter_counter}_event_{idx}"
                 pre_conditions = event_data.get("pre_conditions", "")
                 post_conditions = event_data.get("post_conditions", "")
                 location = event_data.get("location", "Unknown")
@@ -131,6 +192,23 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     post_conditions=post_conditions,
                     location=location
                 )
+        
+        # Second pass: Process causal links now that all events exist
+        for idx, event_data in enumerate(events):
+            source_event_id = event_ids[idx]
+            causes_indexes = event_data.get("causes_event_indexes", [])
+            
+            if isinstance(causes_indexes, list):
+                for target_idx in causes_indexes:
+                    # Sanity check: Ensure the index is an integer and within valid bounds
+                    try:
+                        target_idx = int(target_idx)
+                        if 0 <= target_idx < len(event_ids) and target_idx != idx:
+                            target_event_id = event_ids[target_idx]
+                            graph.add_causal_edge(source_event_id, target_event_id)
+                    except (ValueError, TypeError):
+                        print(f"[Warning] Invalid causal index '{target_idx}' in event {idx}")
+                        
     elif active_names:
         # Fallback to the generic event if no specific events were extracted
         event_id = f"chapter_{chapter_counter}_event"
@@ -215,3 +293,50 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # Atomically save all changes to disk
     save_runtime(story_uuid, chapter_counter, runtime_db)
     return chapter
+
+def ingest_multiple_chapters(
+    story_uuid: str, 
+    chapters: List[Dict[str, str]], 
+    extractor: str = "llm", 
+    decay_rate: float = 0.05,
+    progress_callback: Optional[Callable] = None
+) -> List[Chapter]:
+    """
+    Ingests a list of chapters sequentially.
+    'chapters' is a list of dicts with 'title' and 'url' or 'text'.
+    If 'url' is provided, it must be scraped first (caller should handle scraping or we do it here).
+    For the UI flow, we usually have the text ready if we clicked "Process All", 
+    but if we only have URLs, we need to fetch them.
+    
+    Actually, to keep it clean, let's assume 'chapters' contains 'title' and 'text'.
+    If 'text' is missing, it will skip or the caller should have populated it.
+    """
+    ingested_chapters = []
+    total = len(chapters)
+    
+    for i, chap_data in enumerate(chapters):
+        title = chap_data.get("title", f"Chapter {i+1}")
+        text = chap_data.get("text")
+        
+        if not text:
+            # If text is missing, we might need to scrape it here if a URL is present
+            url = chap_data.get("url")
+            if url:
+                from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                scraper = RoyalRoadScraper()
+                try:
+                    scraped = scraper.scrape_chapter(url)
+                    text = scraped.get("text")
+                except Exception as e:
+                    print(f"Error scraping {url}: {e}")
+                    continue
+            else:
+                continue
+                
+        chapter = ingest_chapter(story_uuid, title, text, extractor, decay_rate)
+        ingested_chapters.append(chapter)
+        
+        if progress_callback is not None:
+            progress_callback(i + 1, total)
+            
+    return ingested_chapters

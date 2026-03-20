@@ -1,0 +1,22 @@
+{
+    "include": ["."],
+    "exclude": [
+        ".venv",
+        "__pycache__",
+        "_trash",
+        "_temp_voxnovel"
+    ],
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "extraPaths": ["."]
+        }
+    ],
+    "pythonPlatform": "Windows",
+    "pythonVersion": "3.13",
+    "typeCheckingMode": "basic",
+    "reportMissingImports": "warning",
+    "reportMissingModuleSource": "none",
+    "reportOptionalMemberAccess": "warning",
+    "reportGeneralTypeIssues": "warning"
+}

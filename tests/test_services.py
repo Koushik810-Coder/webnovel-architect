@@ -27,7 +27,7 @@ def test_render_segments(mock_get_provider):
     # NARRATOR_VOICE_ID is usually defined in constants, mock checks if it hits default
 
 # testing ingest
-@patch('app.services.ingest.extract_chapter_intelligence')
+@patch('app.services.ingest.extract_chapter_intelligence_llm')
 @patch('app.services.ingest.save_character_wiki')
 @patch('app.services.ingest.save_chapter')
 @patch('app.services.ingest.save_runtime')
@@ -56,7 +56,7 @@ def test_ingest_chapter_new_character(mock_load, mock_save_rt, mock_save_chapter
     assert char.mention_count == 1
     mock_save_wiki.assert_called_once()
 
-@patch('app.services.ingest.extract_chapter_intelligence')
+@patch('app.services.ingest.extract_chapter_intelligence_llm')
 @patch('app.services.ingest.save_character_wiki')
 @patch('app.services.ingest.save_chapter')
 @patch('app.services.ingest.save_runtime')

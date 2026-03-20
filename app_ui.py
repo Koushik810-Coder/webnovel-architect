@@ -1,5 +1,33 @@
+# pyre-unsafe
 import streamlit as st
+import streamlit.components.v1 as components  # noqa
 import os
+import json
+import time
+import math
+import tempfile
+import base64
+import asyncio
+import inspect
+import yaml  # noqa
+import pandas as pd  # noqa
+import networkx as nx  # noqa
+from pyvis.network import Network  # noqa
+
+from app.core.story_manager import StoryManager
+import app.core.story_manager as sm_mod
+from app.services.ingest import (
+    load_runtime, ingest_chapter, ingest_multiple_chapters,
+    save_index_state, load_index_state
+)
+from app.services.wiki import get_wiki_dir
+from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+from app.services.scrapers.epub_parser import EpubParser
+from app.services.audiobook_generator import generate_chapter_audiobook
+from app.services.rag import query_story
+from app.services.extraction import extract_chapter_intelligence, extract_chapter_intelligence_llm
+from adapters.graph_adapter import GraphProvider, _graph_instances
+from adapters.tts_adapter import get_tts_engine, assign_voice
 
 # Load .env manually to ensure API keys are available
 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -20,7 +48,6 @@ st.set_page_config(
 )
 
 # --- Sidebar Navigation ---
-from app.core.story_manager import StoryManager
 
 # Initialize StoryManager State
 if 'active_story_uuid' not in st.session_state:
@@ -119,7 +146,7 @@ if page == "Dashboard":
     col1.metric("Processed Chapters", chapter_counter)
     col2.metric("Discovered Characters", len(runtime_db))
     # Count graduation properly based on threshold, not just voice_id
-    graduated_count = len([c for c in runtime_db.values() if c.confidence_score >= 0.75 or c.voice_id is not None])
+    graduated_count = len([c for c in list(runtime_db.values()) if c.confidence_score >= 0.75 or c.voice_id is not None])
     col3.metric("Graduated Characters", graduated_count)
     
     st.subheader("System Configuration")
@@ -130,18 +157,37 @@ elif page == "Ingestion Engine":
     st.markdown("Paste new chapter text or fetch from a Royal Road URL to parse Dialogue and Events into the Knowledge Graph.")
     
     st.subheader("Fetch from URL (Optional)")
+    
+    # Load saved URL from index state if available
+    if 'saved_index_url' not in st.session_state:
+        from app.services.ingest import load_index_state
+        saved = load_index_state(active_story_uuid)
+        if saved and "source_url" in saved:
+            st.session_state['saved_index_url'] = saved["source_url"]
+    
+    default_url = st.session_state.get('saved_index_url', "")
+    
     with st.form("fetch_url_form"):
-        url_input = st.text_input("Royal Road Chapter or Fiction URL", placeholder="https://www.royalroad.com/fiction/...")
+        url_input = st.text_input("Royal Road Chapter or Fiction URL", value=default_url, placeholder="https://www.royalroad.com/fiction/...")
         fetch_submit = st.form_submit_button("Fetch Content")
         
         if fetch_submit and url_input:
             with st.spinner("Fetching from Royal Road..."):
                 try:
                     from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                    from app.services.ingest import save_index_state
                     scraper = RoyalRoadScraper()
                     if scraper.can_handle_index_url(url_input):
                         chapters = scraper.scrape_index(url_input)
                         st.session_state['parsed_index_chapters'] = chapters
+                        
+                        # Save the new index to persistence
+                        save_index_state(active_story_uuid, {
+                            "source_url": url_input,
+                            "chapters": chapters,
+                            "last_ingested_index": -1  # Indicates none of these have been ingested yet
+                        })
+                        
                         # Clear any existing chapter so it defaults to the new index
                         st.session_state.pop('fetched_title', None)
                         st.session_state.pop('fetched_text', None)
@@ -179,47 +225,7 @@ elif page == "Ingestion Engine":
     default_title = st.session_state.get('fetched_title', "")
     default_text = st.session_state.get('fetched_text', "")
     
-    # URL Index Chapter Selection
-    if 'parsed_index_chapters' in st.session_state and st.session_state['parsed_index_chapters']:
-        st.caption("Scraped fiction index. Select a chapter to load its text.")
-        index_chapters = st.session_state['parsed_index_chapters']
-        chapter_opts = {i: c['title'] for i, c in enumerate(index_chapters)}
-        selected_idx_url = st.selectbox(
-            "Select Chapter from Fiction Index", 
-            options=list(chapter_opts.keys()), 
-            format_func=lambda x: chapter_opts[x]
-        )
-        
-        col1, col2 = st.columns([1, 3])
-        if col1.button("Load Selected Chapter"):
-            with st.spinner("Fetching chapter text..."):
-                from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
-                try:
-                    scraper = RoyalRoadScraper()
-                    scraped_data = scraper.scrape_chapter(index_chapters[selected_idx_url]['url'])
-                    st.session_state['fetched_title'] = scraped_data['title']
-                    st.session_state['fetched_text'] = scraped_data['text']
-                    # Use rerun to immediately show the text in the text_area below
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to load chapter text: {e}")
-                    
-    # EPUB Chapter Selection
-    elif 'parsed_epub_chapters' in st.session_state and st.session_state['parsed_epub_chapters']:
-        chapters = st.session_state['parsed_epub_chapters']
-        chapter_opts = {i: c['title'] for i, c in enumerate(chapters)}
-        selected_idx = st.selectbox(
-            "Select Chapter from EPUB", 
-            options=list(chapter_opts.keys()), 
-            format_func=lambda x: chapter_opts[x]
-        )
-        if selected_idx is not None:
-            default_title = chapters[selected_idx]['title']
-            default_text = chapters[selected_idx]['text']
-    
-    chapter_title = st.text_input("Chapter Title", value=default_title, placeholder="e.g., Chapter 1: The Beginning")
-    chapter_text = st.text_area("Chapter Text", value=default_text, height=300)
-    
+    # Global Ingestion Settings
     # Extractor Toggle
     extractor_choice = st.radio(
         "Character Extraction Method",
@@ -237,6 +243,117 @@ elif page == "Ingestion Engine":
         help="Higher values make recent chapter appearances count much more than older ones for character importance.",
         step=0.01
     )
+    
+    st.divider()
+    
+    # Attempt to load persistent index state if not in session
+    if 'parsed_index_chapters' not in st.session_state:
+        from app.services.ingest import load_index_state
+        saved_index = load_index_state(active_story_uuid)
+        if saved_index and "chapters" in saved_index:
+            st.session_state['parsed_index_chapters'] = saved_index["chapters"]
+            st.session_state['last_ingested_index'] = saved_index.get("last_ingested_index", -1)
+            if "source_url" in saved_index:
+                st.session_state['saved_index_url'] = saved_index["source_url"]
+    
+    # URL Index Chapter Selection
+    if 'parsed_index_chapters' in st.session_state and st.session_state['parsed_index_chapters']:
+        index_chapters = st.session_state['parsed_index_chapters']
+        last_ingested = st.session_state.get('last_ingested_index', -1)
+        next_to_ingest = last_ingested + 1
+        
+        st.write("### Active Index")
+        st.caption(f"Scraped fiction index: {len(index_chapters)} chapters found. Last ingested index: {last_ingested} ({last_ingested + 1}/{len(index_chapters)} completed).")
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            chapter_opts = {i: c['title'] for i, c in enumerate(index_chapters)}
+            
+            # Default to the next un-ingested chapter if available
+            default_preview_idx = next_to_ingest if next_to_ingest < len(index_chapters) else max(0, len(index_chapters) - 1)
+            
+            selected_idx_url = st.selectbox(
+                "Select Chapter to Preview", 
+                options=list(chapter_opts.keys()), 
+                format_func=lambda x: chapter_opts[x],
+                index=default_preview_idx
+            )
+            
+            if st.button("Load Preview"):
+                with st.spinner("Fetching chapter text..."):
+                    from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                    try:
+                        scraper = RoyalRoadScraper()
+                        scraped_data = scraper.scrape_chapter(index_chapters[selected_idx_url]['url'])
+                        st.session_state['fetched_title'] = scraped_data['title']
+                        st.session_state['fetched_text'] = scraped_data['text']
+                        # Use rerun to immediately show the text in the text_area below
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to load chapter text: {e}")
+        
+        with col2:
+            st.write("### Batch Ingestion")
+            
+            if next_to_ingest >= len(index_chapters):
+                st.success("All chapters in the current index have been ingested!")
+            else:
+                chapters_remaining = len(index_chapters) - next_to_ingest
+                batch_size = st.number_input("Number of chapters to ingest", min_value=1, max_value=chapters_remaining, value=min(5, chapters_remaining))
+                
+                if st.button(f"🚀 Process Next {batch_size} Chapters", type="primary", use_container_width=True):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    def update_progress(current, total):
+                        progress_bar.progress(current / total)
+                        status_text.text(f"Processing chapter {current} of {total}...")
+    
+                    from app.services.ingest import ingest_multiple_chapters, save_index_state, load_index_state
+                    try:
+                        chapters_to_process = index_chapters[next_to_ingest : next_to_ingest + batch_size]
+                        
+                        # Note: These are URLs, ingest_multiple_chapters will need to scrape them
+                        ingested = ingest_multiple_chapters(
+                            active_story_uuid, 
+                            chapters_to_process, 
+                            extractor=extractor_method, 
+                            decay_rate=decay_rate,
+                            progress_callback=update_progress
+                        )
+                        
+                        # Update progress
+                        new_last_index = next_to_ingest + len(ingested) - 1
+                        st.session_state['last_ingested_index'] = new_last_index
+                        
+                        # Save state
+                        saved_state = load_index_state(active_story_uuid)
+                        if saved_state is None:
+                            saved_state = {}
+                        saved_state["last_ingested_index"] = new_last_index
+                        save_index_state(active_story_uuid, saved_state)
+                        
+                        st.success(f"Successfully processed {len(ingested)} chapters!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Batch ingestion failed: {e}")
+                    
+    # EPUB Chapter Selection
+    elif 'parsed_epub_chapters' in st.session_state and st.session_state['parsed_epub_chapters']:
+        chapters = st.session_state['parsed_epub_chapters']
+        chapter_opts = {i: c['title'] for i, c in enumerate(chapters)}
+        selected_idx = st.selectbox(
+            "Select Chapter from EPUB", 
+            options=list(chapter_opts.keys()), 
+            format_func=lambda x: chapter_opts[x]
+        )
+        if selected_idx is not None:
+            default_title = chapters[selected_idx]['title']
+            default_text = chapters[selected_idx]['text']
+    
+    chapter_title = st.text_input("Chapter Title", value=default_title, placeholder="e.g., Chapter 1: The Beginning")
+    chapter_text = st.text_area("Chapter Text", value=default_text, height=300)
     
     if st.button("Process Chapter", type="primary"):
         if not chapter_title or not chapter_text:
@@ -299,66 +416,94 @@ elif page == "Audio Hub":
     import yaml
     import asyncio
     
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        
     chapter_counter, runtime_db = load_runtime(active_story_uuid)
     
     st.subheader("📚 Full Chapter Audiobook")
     st.markdown("Synthesize a dynamic, multi-voice audiobook for a complete chapter. (Bypasses graduation threshold)")
     
-    col1, col2 = st.columns([1, 2])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
         chapter_to_sync = st.number_input("Chapter Number", min_value=1, max_value=chapter_counter if chapter_counter > 0 else 1, value=1)
-        
-    if st.button("Synthesize Entire Chapter", type="primary"):
-        if chapter_counter == 0:
-            st.warning("No chapters processed yet.")
-        else:
-            with st.spinner(f"Extracting LLM script and rendering audio for Chapter {chapter_to_sync}..."):
-                from app.services.audiobook_generator import generate_chapter_audiobook
-                try:
-                    result = generate_chapter_audiobook(active_story_uuid, chapter_to_sync)
-                    
-                    if result:
-                        out_path, vtt_path = result
-                        if os.path.exists(out_path) and os.path.exists(vtt_path):
-                            st.success(f"Audiobook for Chapter {chapter_to_sync} complete!")
-                            
-                            # Streamlit's native st.audio doesn't support VTT subtitles nicely.
-                            # We'll serve the files via base64 in a custom HTML5 video/audio tag
-                            import base64
-                            
-                            with open(out_path, "rb") as f:
-                                audio_bytes = f.read()
-                            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                            
-                            with open(vtt_path, "r", encoding="utf-8") as f:
-                                vtt_text = f.read()
-                            vtt_b64 = base64.b64encode(vtt_text.encode('utf-8')).decode('utf-8')
-                            
-                            html_player = f"""
-                            <div style="background-color: #1e1e2e; padding: 20px; border-radius: 10px; margin-top: 10px;">
-                                <h4 style="color: white; margin-bottom: 15px;">Chapter {chapter_to_sync} Playback</h4>
-                                <video controls style="width: 100%; height: 60px; background-color: #000; border-radius: 5px;" name="media">
-                                    <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mpeg">
-                                    <track label="English" kind="subtitles" srclang="en" src="data:text/vtt;base64,{vtt_b64}" default>
-                                    Your browser does not support the audio element or WebVTT.
-                                </video>
-                                <p style="color: #aaa; font-size: 12px; margin-top: 10px;">Turn on Closed Captions (CC) in the player to see the synchronized text.</p>
-                            </div>
-                            """
-                            st.components.v1.html(html_player, height=150)
-                        else:
-                            st.error("Audiobook generation failed. Files not found.")
+    with col2:
+        engine_type_ab = st.radio("Audiobook Engine", [config.get('tts_engine', 'kokoro'), config.get('fallback_tts', 'edge_tts')], horizontal=True)
+    with col3:
+        # Define cancel flag button logic
+        if st.session_state.get("generating_audiobook", False):
+            if st.button("🚫 Cancel Generation", type="secondary"):
+                with open("cancel_audio.flag", "w") as f:
+                    f.write("cancel")
+                st.session_state["generating_audiobook"] = False
+                st.rerun()
+
+    # Generation Button
+    start_placeholder = st.empty()
+    if not st.session_state.get("generating_audiobook", False):
+        if start_placeholder.button("Synthesize Entire Chapter", type="primary"):
+            if chapter_counter == 0:
+                st.warning("No chapters processed yet.")
+            else:
+                if os.path.exists("cancel_audio.flag"):
+                    os.remove("cancel_audio.flag")
+                st.session_state["generating_audiobook"] = True
+                st.rerun()
+
+    if st.session_state.get("generating_audiobook", False):
+        with st.spinner(f"Extracting LLM script and rendering audio for Chapter {chapter_to_sync}..."):
+            from app.services.audiobook_generator import generate_chapter_audiobook
+            try:
+                result = generate_chapter_audiobook(active_story_uuid, chapter_to_sync, engine=engine_type_ab)
+                if result:
+                    st.session_state["ab_success_msg"] = f"Audiobook for Chapter {chapter_to_sync} complete!"
+                else:
+                    if os.path.exists("cancel_audio.flag"):
+                        st.info("Generation cancelled by user.")
                     else:
-                        st.error("Audiobook generation failed. Please check the terminal for FFMPEG or LLM errors.")
-                except Exception as e:
-                    st.error(f"Error generating audiobook: {e}")
+                        st.error("Audiobook generation failed. Please check the terminal.")
+            except Exception as e:
+                st.error(f"Error generating audiobook: {e}")
+            finally:
+                st.session_state["generating_audiobook"] = False
+                if os.path.exists("cancel_audio.flag"):
+                    os.remove("cancel_audio.flag")
+                st.rerun()
+
+    # Serve Audio Player Statically from Disk
+    final_audio_path = os.path.join(StoryManager.DATA_DIR, active_story_uuid, "generated_audio", f"chapter_{chapter_to_sync}_full.mp3")
+    final_vtt_path = os.path.join(StoryManager.DATA_DIR, active_story_uuid, "generated_audio", f"chapter_{chapter_to_sync}_full.vtt")
+
+    if st.session_state.get("ab_success_msg"):
+        st.success(st.session_state["ab_success_msg"])
+        st.session_state["ab_success_msg"] = "" # consume msg
+
+    if os.path.exists(final_audio_path) and os.path.exists(final_vtt_path):
+        import base64
+        with open(final_audio_path, "rb") as f:
+            audio_bytes = f.read()
+        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+        
+        with open(final_vtt_path, "r", encoding="utf-8") as f:
+            vtt_text = f.read()
+        vtt_b64 = base64.b64encode(vtt_text.encode('utf-8')).decode('utf-8')
+        
+        html_player = f"""
+        <div style="background-color: #1e1e2e; padding: 20px; border-radius: 10px; margin-top: 10px;">
+            <h4 style="color: white; margin-bottom: 15px;">Chapter {chapter_to_sync} Playback</h4>
+            <video controls style="width: 100%; height: 60px; background-color: #000; border-radius: 5px;" name="media">
+                <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mpeg">
+                <track label="English" kind="subtitles" srclang="en" src="data:text/vtt;base64,{vtt_b64}" default>
+                Your browser does not support the audio element or WebVTT.
+            </video>
+            <p style="color: #aaa; font-size: 12px; margin-top: 10px;">Turn on CC in the player to see the synchronized text.</p>
+        </div>
+        """
+        st.components.v1.html(html_player, height=150)
                     
     st.divider()
     st.subheader("🎙️ Character Voice Testing")
     
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
-        
     graduated_chars = [c for c in runtime_db.values() if c.confidence_score >= 0.75 or c.voice_id is not None]
     
     if not graduated_chars:
@@ -440,7 +585,10 @@ elif page == "Knowledge Graph":
         # Add edges
         for src, dst, data in G.edges(data=True):
             relation = data.get("relation", "")
-            net.add_edge(str(src), str(dst), title=relation, color="#888")
+            if relation == "causes":
+                net.add_edge(str(src), str(dst), title=relation, color="#ffaa00", dashes=True) # Orange dashed line for causality
+            else:
+                net.add_edge(str(src), str(dst), title=relation, color="#888")
         
         # Save to temp HTML and embed
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w") as f:
@@ -671,7 +819,7 @@ elif page == "Evaluation":
 
                     rank_df = pd.DataFrame({
                         "Human Rank":    expected_rank,
-                        "Computed ID":   computed_rank[:len(expected_rank)]
+                        "Computed ID":   computed_rank[:int(len(expected_rank))]
                     })
                     st.dataframe(rank_df, use_container_width=True, hide_index=False)
 

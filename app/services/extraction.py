@@ -134,6 +134,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
         - 'pre_conditions': A brief description of the state or situation *before* the event.
         - 'post_conditions': A brief description of the state or situation *after* the event.
         - 'location': The location where the event takes place (if mentioned, otherwise "Unknown").
+        - 'causes_event_indexes': An array of integers representing the zero-based indices of other events in this list that this specific event directly causes or leads to. Leave empty if none.
     
     Also count the approximate number of times dialogue occurs (dialogue blocks enclosed in quotes). Return this as an integer 'dialogue_count_total'.
     
@@ -148,7 +149,8 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
                 "involved_characters": ["Character1"],
                 "pre_conditions": "Character1 is searching the ruins.",
                 "post_conditions": "Character1 gains magical powers.",
-                "location": "Ancient Ruins"
+                "location": "Ancient Ruins",
+                "causes_event_indexes": []
             }}
         ]
     }}

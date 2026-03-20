@@ -1,0 +1,11 @@
+{
+    "source_directories": ["."],
+    "search_path": [".", ".venv/Lib/site-packages"],
+    "site_package_search_strategy": "pep503",
+    "exclude": [
+        ".venv/.*",
+        "__pycache__/.*",
+        "_trash/.*",
+        "_temp_voxnovel/.*"
+    ]
+}
