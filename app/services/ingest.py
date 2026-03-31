@@ -62,7 +62,7 @@ def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, Ch
     
     data = {
         "chapter_counter": chapter_counter,
-        "characters": {k: v.dict() for k, v in runtime_db.items()}
+        "characters": {k: v.model_dump() for k, v in runtime_db.items()}
     }
     
     with open(path, "w") as f:
