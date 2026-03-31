@@ -115,3 +115,4 @@ eval_out2.txt
 apply_edits.py
 find_strings.py
 test_llm.py
+test_wiki_ingest.py

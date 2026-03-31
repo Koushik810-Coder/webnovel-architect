@@ -262,34 +262,46 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 logger.info(f"Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
                 
             # Grab existing wiki content
-            from app.services.wiki import get_character_wiki_content, update_character_summary
+            from app.services.wiki import get_character_wiki_content, update_character_profile, parse_character_wiki
             existing_wiki_md = get_character_wiki_content(story_uuid, char_id)
-            
-            # Extract only the "long_description" part from the raw MD, or just use the whole thing if simple
-            import re
-            desc_match = re.search(r"## Description\n(.*?)(?=\n##|$)", existing_wiki_md, flags=re.DOTALL)
-            existing_desc = desc_match.group(1).strip() if desc_match else ""
             
             # Find what happened to them this chapter
             char_events_this_chapter = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
             event_text_block = "\n".join([f"- {e.get('action_summary')}" for e in char_events_this_chapter])
             
-            new_long_desc = existing_desc
-            if event_text_block:
-                # Only run the LLM if they actually did something in an event (saves tokens/time for background chars)
-                new_long_desc = update_character_summary(existing_desc, event_text_block, name)
-                
-            # Always update the Wiki so it reflects the latest stats (Confidence, Mentions)
+            # Create a default wiki entry
             wiki_entry = CharacterWiki(
                 character_id=char_id,
                 display_name=name,
                 short_description=f"First appeared in Chapter {char.first_seen_chapter}. Last seen in Chapter {char.last_seen_chapter}.",
-                long_description=new_long_desc if new_long_desc else None,
                 first_appearance_chapter=char.first_seen_chapter,
                 last_updated_chapter=chapter_counter,
                 confidence=char.confidence_score,
                 voice_id=char.voice_id
             )
+            
+            if event_text_block:
+                # LLM Parse existing wiki + events
+                profile_data = update_character_profile(existing_wiki_md, event_text_block, name)
+            else:
+                # Safely parse old fields without invoking the LLM
+                profile_data = parse_character_wiki(existing_wiki_md)
+                
+            if profile_data:
+                if profile_data.get("synopsis"): wiki_entry.long_description = profile_data["synopsis"]
+                if profile_data.get("status"): wiki_entry.status = profile_data["status"]
+                if profile_data.get("age"): wiki_entry.age = str(profile_data["age"])
+                if profile_data.get("species"): wiki_entry.species = profile_data["species"]
+                if profile_data.get("role"): wiki_entry.role = profile_data["role"]
+                if profile_data.get("appearance"): wiki_entry.appearance = profile_data["appearance"]
+                
+                if isinstance(profile_data.get("affiliations"), list): 
+                    wiki_entry.affiliations = profile_data["affiliations"]
+                if isinstance(profile_data.get("personality_traits"), list): 
+                    wiki_entry.personality_traits = profile_data["personality_traits"]
+                if isinstance(profile_data.get("notable_quirks"), list): 
+                    wiki_entry.notable_quirks = profile_data["notable_quirks"]
+                    
             save_character_wiki(story_uuid, wiki_entry)
             
             # Update local state
