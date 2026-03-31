@@ -4,8 +4,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Virtual environment   
+# Virtual environment
 venv/
+.venv/
 
 # Editor / OS
 .vscode/
@@ -13,7 +14,7 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Runtime / local data  
+# Runtime / local data
 storage/
 
 # Documentation to exclude
@@ -26,6 +27,7 @@ result.txt
 stucture.txt
 Documents/commits*.txt
 Documents/slides.txt
+
 # Large Models
 models/
 *.onnx
@@ -41,9 +43,12 @@ cancel_audio.flag
 
 # Test Outputs
 *_output.txt
+eval_output*.txt
 out_*.txt
 test_integration.txt
 test_output.txt
+pytest_out*.txt
+tracked_files.txt
 
 # Sensitive
 .env
@@ -82,4 +87,31 @@ dataset/
 Documents/Review_*.md
 Documents/*.pdf
 Documents/*.pptx
+Documents/*.txt
 Documents/Archive/
+Documents/Research/
+Documents/Review/
+
+# DOCX unpack scratch directories (tool artifacts)
+unpacked_doc/
+unpacked_doc2/
+unpacked_modified/
+
+# DOCX extraction scratch files
+docx_content.txt
+docx_extracted.txt
+docx_extracted2.txt
+
+# Eval/debug scratch dumps
+dump.txt
+eval_2_clean.txt
+eval_out.txt
+eval_out2.txt
+
+# Word temporary lock files
+~$*
+
+# One-off utility/debug scripts (not part of the codebase)
+apply_edits.py
+find_strings.py
+test_llm.py
