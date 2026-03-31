@@ -114,9 +114,11 @@ with st.sidebar:
                 st.session_state['active_story_uuid'] = new_uuid
                 st.rerun()
                 
-            if st.button("🗑️ Delete Story", type="primary", use_container_width=True):
+            confirm_del = st.checkbox("Confirm permanent deletion", key="confirm_delete")
+            if st.button("🗑️ Delete Story", type="primary", use_container_width=True, disabled=not confirm_del):
                 StoryManager.soft_delete_story(cur_uuid)
                 st.session_state['active_story_uuid'] = None
+                st.session_state['confirm_delete'] = False
                 st.rerun()
 
     st.divider()
@@ -146,8 +148,12 @@ if page == "Dashboard":
     import yaml
     from app.services.ingest import load_runtime
     
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    try:
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        st.error("`config.yaml` not found. Please restore it from the repository root.")
+        st.stop()
         
     chapter_counter, runtime_db = load_runtime(active_story_uuid)
         
@@ -361,7 +367,7 @@ elif page == "Ingestion Engine":
             default_text = chapters[selected_idx]['text']
     
     chapter_title = st.text_input("Chapter Title", value=default_title, placeholder="e.g., Chapter 1: The Beginning")
-    chapter_text = st.text_area("Chapter Text", value=default_text, height=300)
+    chapter_text = st.text_area("Chapter Text", value=default_text, height=300, placeholder="Paste your chapter content here...")
     
     if st.button("Process Chapter", type="primary"):
         if not chapter_title or not chapter_text:
@@ -397,7 +403,11 @@ elif page == "Wiki Memory":
         if not files:
             st.info("No characters in Wiki yet. Process some chapters first!")
         else:
-            selected_file = st.selectbox("Select Character", files)
+            selected_file = st.selectbox(
+                "Select Character",
+                files,
+                format_func=lambda f: f.replace('.md', '').replace('_', ' ').title()
+            )
             with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
                 content = f.read()
                 
@@ -424,8 +434,12 @@ elif page == "Audio Hub":
     import yaml
     import asyncio
     
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    try:
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        st.error("`config.yaml` not found. Please restore it from the repository root.")
+        st.stop()
         
     chapter_counter, runtime_db = load_runtime(active_story_uuid)
     
@@ -449,7 +463,7 @@ elif page == "Audio Hub":
     # Generation Button
     start_placeholder = st.empty()
     if not st.session_state.get("generating_audiobook", False):
-        if start_placeholder.button("Synthesize Entire Chapter", type="primary"):
+        if start_placeholder.button("Synthesize Entire Chapter", type="primary", disabled=chapter_counter == 0):
             if chapter_counter == 0:
                 st.warning("No chapters processed yet.")
             else:
@@ -545,12 +559,14 @@ elif page == "Audio Hub":
                         voice = assign_voice(char)
                         
                     if asyncio.iscoroutinefunction(tts.generate_audio):
-                        asyncio.run(tts.generate_audio(test_text, voice, filename))
+                        from app.services.audiobook_generator import _run_async
+                        _run_async(tts.generate_audio(test_text, voice, filename))
                     else:
                         tts.generate_audio(test_text, voice, filename)
                         
                     st.success("Audio generated!")
-                    st.audio(filename)
+                    with open(filename, "rb") as _af:
+                        st.audio(_af.read(), format="audio/wav")
                 except Exception as e:
                     st.error(f"Failed to generate audio: {str(e)}")
 elif page == "Knowledge Graph":
@@ -563,7 +579,8 @@ elif page == "Knowledge Graph":
     import tempfile
     
     # Force load latest graph from disk
-    graph_engine = GraphProvider(active_story_uuid)
+    from adapters.graph_adapter import get_graph_engine
+    graph_engine = get_graph_engine(active_story_uuid)
     G = graph_engine.graph
     
     if len(G.nodes) == 0:
@@ -598,15 +615,21 @@ elif page == "Knowledge Graph":
             else:
                 net.add_edge(str(src), str(dst), title=relation, color="#888")
         
-        # Save to temp HTML and embed
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w") as f:
-            net.save_graph(f.name)
-            html_path = f.name
-        
-        with open(html_path, "r", encoding="utf-8") as f:
-            html_content = f.read()
-        
-        components.html(html_content, height=620, scrolling=False)
+        # Save to temp HTML, embed, then clean up
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as _tf:
+            html_path = _tf.name
+        try:
+            net.save_graph(html_path)
+            with open(html_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+        finally:
+            try:
+                os.unlink(html_path)
+            except OSError:
+                pass
+
+        st.caption("🔴 Character Nodes   🔵 Event Nodes   🟠 Causal Links (dashed)")
+        components.html(html_content, height=700, scrolling=False)
         
         # Stats below
         col1, col2 = st.columns(2)
@@ -620,7 +643,7 @@ elif page == "Story Q&A":
     st.markdown("Ask temporal and contextual questions about the story. The engine uses DyG-RAG principles (Chronological Dynamic Event Units) to reason through the character timelines.")
     
     with st.form("qna_form"):
-        query = st.text_input("Ask a question about the story:", placeholder="What happen to Lucian after he fought the troll?")
+        query = st.text_input("Ask a question about the story:", placeholder="What happened to Lucian after he fought the troll?")
         submit = st.form_submit_button("Ask")
         
         if submit and query:
