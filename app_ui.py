@@ -114,11 +114,10 @@ with st.sidebar:
                 st.session_state['active_story_uuid'] = new_uuid
                 st.rerun()
                 
-            confirm_del = st.checkbox("Confirm permanent deletion", key="confirm_delete")
+            confirm_del = st.checkbox("Confirm permanent deletion", key=f"confirm_delete_{cur_uuid}")
             if st.button("🗑️ Delete Story", type="primary", use_container_width=True, disabled=not confirm_del):
                 StoryManager.soft_delete_story(cur_uuid)
                 st.session_state['active_story_uuid'] = None
-                st.session_state['confirm_delete'] = False
                 st.rerun()
 
     st.divider()
@@ -422,7 +421,7 @@ elif page == "Wiki Memory":
                 )
                 
             st.markdown("---")
-            st.markdown(content)
+            st.markdown(content, unsafe_allow_html=True)
     else:
         st.warning(f"Wiki directory '{wiki_dir}' does not exist.")
     
