@@ -3,6 +3,9 @@ from adapters.graph_adapter import get_graph_engine
 from adapters.llm_adapter import analyze_text
 import spacy
 
+from app.core.logger import get_logger
+logger = get_logger(__name__)
+
 try:
     nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger", "lemmatizer", "attribute_ruler", "tok2vec"])
 except:
@@ -36,7 +39,7 @@ def query_story(story_uuid: str, query: str, model: str = "gemini/gemini-2.5-fla
 
     # General Question Fallback (e.g., "Who is the main character?", "Summarize the story")
     if not query_entities:
-        print("[RAG] No specific entities found in query. Falling back to top 5 characters by graph prominence.")
+        logger.info("No specific entities found in query. Falling back to top 5 characters by graph prominence.")
         char_nodes = [n for n, d in graph.graph.nodes(data=True) if d.get("type") == "character"]
         
         if not char_nodes:
@@ -122,8 +125,8 @@ Reason through the context chronologically and then provide a clear, narrative a
     response = analyze_text(prompt, model=model)
     
     # Primary model fallback to Groq to prevent RAG downtime
-    if response and response.startswith("API Fallback:") and not model.startswith("groq"):
-        print(f"[RAG] Primary model {model} failed. Falling back to Groq as a safeguard...")
+    if (response is None or response.startswith("API Fallback:")) and not model.startswith("groq"):
+        logger.warning(f"Primary model {model} failed. Falling back to Groq as a safeguard...")
         fallback_model = "groq/llama-3.1-8b-instant"
         response = analyze_text(prompt, model=fallback_model)
         

@@ -2,6 +2,10 @@ import re
 import spacy
 from typing import Dict, Any
 
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
+
 # Load spaCy model at the module level
 # Disable unused components for performance
 try:
@@ -56,7 +60,7 @@ try:
     ]
     ruler.add_patterns(patterns)
 except OSError:
-    print("Warning: spaCy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
+    logger.warning("spaCy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
     nlp = None
 
 def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
@@ -67,6 +71,8 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
     if nlp is None:
         raise RuntimeError("spaCy model 'en_core_web_sm' is not installed. Please run: python -m spacy download en_core_web_sm")
         
+    logger.debug("Starting spaCy-based NER extraction")
+    
     # Process the entire chapter text as one document — no chunking.
     doc = nlp(text)
     
@@ -159,6 +165,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     {text}
     """
     
+    logger.debug(f"Starting LLM-based intelligence extraction using {model}")
     result = analyze_text_json(prompt, model=model)
     
     if not result:

@@ -5,6 +5,9 @@ import asyncio
 # Re-exported for convenience so app_ui.py can import from one place
 from app.services.voice_assignment import assign_voice
 
+from app.core.logger import get_logger
+logger = get_logger(__name__)
+
 # 1. The Contract: Every future breakthrough MUST follow this rule
 class TTSProvider(ABC):
     """
@@ -32,19 +35,19 @@ class KokoroAdapter(TTSProvider):
     """
     
     def __init__(self):
-        print("Loading Kokoro (82M)...")
+        logger.info("Loading Kokoro (82M)...")
         try:
             from kokoro_onnx import Kokoro
             # Check if model files exist, otherwise warn (or rely on library error)
             if not os.path.exists("models/kokoro-v0_19.onnx") or not os.path.exists("models/voices-v1.0.bin"):
-                print("Warning: Kokoro model files (kokoro-v0_19.onnx, voices-v1.0.bin) not found in 'models/' directory.")
+                logger.warning("Kokoro model files (kokoro-v0_19.onnx, voices-v1.0.bin) not found in 'models/' directory.")
             
             self.engine = Kokoro("models/kokoro-v0_19.onnx", "models/voices-v1.0.bin")
         except ImportError:
-            print("Error: kokoro_onnx not installed.")
+            logger.error("kokoro_onnx not installed.")
             self.engine = None
         except Exception as e:
-            print(f"Error initializing Kokoro: {e}")
+            logger.error(f"Error initializing Kokoro: {e}")
             self.engine = None
 
     def generate_audio(self, text, voice_id, output_path):
@@ -62,7 +65,7 @@ class KokoroAdapter(TTSProvider):
             samples, sample_rate = self.engine.create(text, voice=voice_id, speed=1.0, lang='en-us')
             sf.write(output_path, samples, sample_rate)
         else:
-            print(f"[Mock Kokoro] Generated audio for '{text}' to {output_path}")
+            logger.info(f"[Mock Kokoro] Generated audio for '{text}' to {output_path}")
 
 # 3. The Free Backup (Edge TTS - Online)
 class EdgeAdapter(TTSProvider):
@@ -89,7 +92,7 @@ class EdgeAdapter(TTSProvider):
         try:
             asyncio.run(_run_edge())
         except Exception as e:
-            print(f"Error running EdgeTTS: {e}")
+            logger.error(f"Error running EdgeTTS: {e}")
 
 # 4. The Factory: Decides which one to give you
 def get_tts_engine(config_type):
@@ -108,7 +111,7 @@ def get_tts_engine(config_type):
     if config_type == "kokoro":
         adapter = KokoroAdapter()
         if adapter.engine is None:
-            print("Kokoro unavailable. Falling back to EdgeTTS.")
+            logger.warning("Kokoro unavailable. Falling back to EdgeTTS.")
             return EdgeAdapter()
         return adapter
     elif config_type == "edge":

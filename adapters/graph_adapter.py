@@ -2,6 +2,9 @@ import networkx as nx
 import json
 import os
 
+from app.core.logger import get_logger
+logger = get_logger(__name__)
+
 class GraphProvider:
     def __init__(self, story_uuid: str):
         self.story_uuid = story_uuid
@@ -17,6 +20,11 @@ class GraphProvider:
 
     def add_character(self, name: str, attributes: dict):
         """Adds or updates a character node."""
+        if not self.graph.has_node(name):
+            # Track chronological introduction for bootstrapping
+            current_chars = sum(1 for n, d in self.graph.nodes(data=True) if d.get("type") == "character")
+            attributes["introduction_order"] = current_chars + 1
+            
         self.graph.add_node(name, type="character", **attributes)
         self.save_graph()
 
@@ -122,11 +130,21 @@ class GraphProvider:
             if current_chapter > 0 and max_chapter > 0:
                 age = max(0, current_chapter - max_chapter)
                 temporal_multiplier = (1.0 - decay_rate) ** age
-                return base_score * temporal_multiplier
+                score = base_score * temporal_multiplier
+            else:
+                score = base_score
                 
-            return base_score
+            # Bootstrapping Paradox Mitigation
+            # The first 5 named characters introduced operate functionally as main cast.
+            # They receive a guaranteed minimum voice threshold assignment until the graph topology matures.
+            intro_order = self.graph.nodes[name].get("introduction_order", 999)
+            if intro_order <= 5:
+                # 0.16 guarantees they clear the 0.15 upper-bound assign threshold
+                return max(score, 0.16)
+                
+            return score
         except Exception as e:
-            print(f"Temporal PageRank failed: {e}, falling back to degree.")
+            logger.warning(f"Temporal PageRank failed: {e}, falling back to degree.")
             return float(self.graph.degree(name))
 
     def merge_characters(self, source_id: str, target_id: str):

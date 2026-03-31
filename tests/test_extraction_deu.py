@@ -22,7 +22,7 @@ def test_extract_chapter_intelligence_llm_deu_format():
         ]
     }
     
-    with patch('app.services.extraction.analyze_text_json') as mock_analyze:
+    with patch('adapters.llm_adapter.analyze_text_json') as mock_analyze:
         mock_analyze.return_value = mock_llm_response
         
         # Act

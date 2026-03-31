@@ -5,6 +5,10 @@ import shutil
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
+
 class StoryManager:
     """Manages isolated data directories for individual webnovels."""
     
@@ -46,6 +50,7 @@ class StoryManager:
         with open(os.path.join(story_path, "runtime_db.json"), "w") as f:
             json.dump(runtime, f, indent=4)
 
+        logger.info(f"Created new story: '{name}' (UUID: {story_uuid})")
         return story_uuid
 
     @classmethod
@@ -95,6 +100,7 @@ class StoryManager:
             meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=4)
+            logger.info(f"Renamed story UUID {story_uuid} to '{new_name}'")
             return True
         return False
 
@@ -122,6 +128,7 @@ class StoryManager:
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=4)
                 
+        logger.info(f"Duplicated story UUID {story_uuid} to new UUID {new_uuid}")
         return new_uuid
 
     @classmethod
@@ -133,4 +140,5 @@ class StoryManager:
             
         dst_path = os.path.join(cls.TRASH_DIR, f"{story_uuid}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
         shutil.move(src_path, dst_path)
+        logger.info(f"Soft deleted story UUID {story_uuid} -> moved to trash")
         return True

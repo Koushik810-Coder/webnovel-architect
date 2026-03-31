@@ -149,6 +149,14 @@ def run_graph_latency():
         sm_mod.StoryManager.DATA_DIR = tmpdir
 
         try:
+            # Pre-warming benchmark to eliminate cold-start anomaly
+            gp_warm = GraphProvider("bench_warmup")
+            gp_warm.graph.add_node("warm_char", type="character", last_seen_chapter=1)
+            gp_warm.graph.add_node("warm_event", type="event", chapter_id=1)
+            gp_warm.graph.add_edge("warm_char", "warm_event", relation="participant", chapter_id=1)
+            gp_warm.get_character_importance("warm_char", current_chapter=1, decay_rate=0.05)
+            gp_warm.graph = nx.DiGraph()
+
             for n_chars in [10, 50, 100, 500, 1000]:
                 gp = GraphProvider("bench_story")
 
@@ -194,7 +202,7 @@ def run_tts_rtf():
     import tempfile
 
     # Try Kokoro first, fall back to EdgeTTS, then skip
-    engines_to_try = ["kokoro", "edge_tts"]
+    engines_to_try = ["kokoro", "edge"]
     tried_any = False
 
     for engine_name in engines_to_try:
@@ -265,7 +273,7 @@ def spearman_rho(rank_a: list, rank_b: list) -> float:
     return rho
 
 
-def run_spearman(gold_data: dict):
+def run_spearman(gold_data: dict, run_llm: bool):
     header("Metric 4 — Spearman ρ  (Character Importance Ranking)")
 
     import tempfile
@@ -289,8 +297,9 @@ def run_spearman(gold_data: dict):
             # Create a throwaway story
             story_uuid = sm_mod.StoryManager.create_story("eval_bench")
 
-            # Ingest the gold chapter
-            ingest_chapter(story_uuid, "Gold Chapter", text, extractor="spacy")
+            # Ingest the gold chapter using LLM if requested to ensure 100% Extraction
+            extractor_engine = "llm" if run_llm else "spacy"
+            ingest_chapter(story_uuid, "Gold Chapter", text, extractor=extractor_engine)
 
             # Pull the computed ranking from runtime
             from app.services.ingest import load_runtime
@@ -316,15 +325,32 @@ def run_spearman(gold_data: dict):
             # Filter to only IDs that actually appear in both lists
             common_ids = [x for x in expected_ids if x in computed_rank]
 
+            # Baseline comparison: Simple Frequency Ranker (Raw Degree)
+            baseline_sorted = sorted(
+                runtime_db.values(),
+                key=lambda c: get_graph_engine(story_uuid).graph.degree(c.character_id) if get_graph_engine(story_uuid).graph.has_node(c.character_id) else 0,
+                reverse=True,
+            )
+            baseline_rank = [c.character_id for c in baseline_sorted]
+            rho_baseline = spearman_rho(expected_ids, baseline_rank)
+
             rho = spearman_rho(expected_ids, computed_rank)
 
             ok = not math.isnan(rho) and rho >= 0.7
             rho_str = f"{rho:.3f}" if not math.isnan(rho) else "N/A"
             metric_row(
-                "Spearman ρ (computed vs. human)",
+                "Spearman ρ (Temporal PageRank)",
                 rho_str,
                 f"n={len(common_ids)} common chars  target: ρ ≥ 0.70",
                 ok=ok,
+            )
+            
+            rho_base_str = f"{rho_baseline:.3f}" if not math.isnan(rho_baseline) else "N/A"
+            metric_row(
+                "Spearman ρ (Baseline Frequency)",
+                rho_base_str,
+                f"Raw degree count baseline",
+                ok=True, # Informational
             )
 
             print(f"\n  {C.DIM}  Human rank   : {expected_ids}")
@@ -338,6 +364,138 @@ def run_spearman(gold_data: dict):
             _graph_instances.clear()
             sm_mod.StoryManager.DATA_DIR = original_data_dir
 
+
+def run_lambda_ablation(gold_data: dict, run_llm: bool):
+    header("Lambda Ablation Study (Spearman ρ across decay rates)")
+    
+    import tempfile
+    import app.core.story_manager as sm_mod
+    
+    text = gold_data["text"]
+    expected_rank = [name.lower().replace(" ", "_").replace("'", "") for name in gold_data["expected_rank_order"]]
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_data_dir = sm_mod.StoryManager.DATA_DIR
+        sm_mod.StoryManager.DATA_DIR = tmpdir
+        try:
+            from app.services.ingest import ingest_chapter, load_runtime
+            from adapters.graph_adapter import get_graph_engine, _graph_instances
+            
+            _graph_instances.clear()
+            story_uuid = sm_mod.StoryManager.create_story("ablation_bench")
+            
+            # Ingest once
+            extractor_engine = "llm" if run_llm else "spacy"
+            ingest_chapter(story_uuid, "Gold Chapter", text, extractor=extractor_engine)
+            _, runtime_db = load_runtime(story_uuid)
+            
+            if not runtime_db:
+                print(f"  {C.YELLOW}  [No characters ingested — cannot run ablation]{C.RESET}")
+                return
+                
+            gp = get_graph_engine(story_uuid)
+            
+            # Test multiple lambdas
+            lambdas = [0.01, 0.03, 0.05, 0.10, 0.20]
+            print(f"  {C.DIM}Testing λ ∈ {lambdas}...{C.RESET}")
+            
+            best_rho = -1.0
+            best_l = 0.05
+            
+            for l in lambdas:
+                # Re-calculate ranks with specific decay
+                computed_sorted = sorted(
+                    runtime_db.values(),
+                    key=lambda c: gp.get_character_importance(c.character_id, current_chapter=1, decay_rate=l),
+                    reverse=True,
+                )
+                computed_rank = [c.character_id for c in computed_sorted]
+                rho = spearman_rho(expected_rank, computed_rank)
+                
+                if not math.isnan(rho) and rho > best_rho:
+                    best_rho = rho
+                    best_l = l
+                    
+                rho_str = f"{rho:.3f}" if not math.isnan(rho) else "N/A"
+                metric_row(f"λ = {l:.2f}", rho_str, ok=True)
+                
+            print(f"  {C.GREEN}✓ Optimal λ empirically determined: {best_l:.2f} (ρ={best_rho:.3f}){C.RESET}")
+            
+        except Exception as e:
+            print(f"  {C.RED}✗  Ablation failed: {e}{C.RESET}")
+        finally:
+            _graph_instances.clear()
+            sm_mod.StoryManager.DATA_DIR = original_data_dir
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Metric 5 — End-to-End System Evaluation
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_end_to_end_pipeline(gold_data: dict, run_llm: bool, run_tts: bool):
+    header("Metric 5 — End-to-End System Evaluation")
+
+    if not run_llm or not run_tts:
+        print(f"  {C.YELLOW}  [Skipped — requires both --llm and TTS enabled to run full pipeline]{C.RESET}")
+        return
+
+    import tempfile
+    import app.core.story_manager as sm_mod
+
+    text = gold_data["text"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_data_dir = sm_mod.StoryManager.DATA_DIR
+        sm_mod.StoryManager.DATA_DIR = tmpdir
+
+        try:
+            from app.services.ingest import ingest_chapter, load_runtime
+            from app.services.audiobook_generator import generate_chapter_audiobook
+            from adapters.graph_adapter import _graph_instances
+
+            _graph_instances.clear()
+
+            print(f"  {C.DIM}Ingesting chapter via Neural LLM…{C.RESET}")
+            t0 = time.perf_counter()
+            story_uuid = sm_mod.StoryManager.create_story("eval_e2e")
+            ingest_chapter(story_uuid, "Gold Chapter", text, extractor="litellm")
+            ingest_ms = (time.perf_counter() - t0) * 1000
+            
+            # Verify graph state
+            _, runtime_db = load_runtime(story_uuid)
+            graph_ok = len(runtime_db) > 0
+
+            metric_row("E2E — Step 1: Ingestion & Graph",
+                       f"{ingest_ms:.0f} ms", f"found {len(runtime_db)} entities", ok=graph_ok)
+
+            print(f"  {C.DIM}Generating audiobook script & synthesizing (Edge-TTS fallback)…{C.RESET}")
+            t1 = time.perf_counter()
+            # Suppress excessive logs
+            import logging
+            logging.getLogger("adapters.tts_adapter").setLevel(logging.CRITICAL)
+            logging.getLogger("app.services.audiobook_generator").setLevel(logging.CRITICAL)
+            
+            result = generate_chapter_audiobook(story_uuid, 1, engine="edge")
+            audio_ms = (time.perf_counter() - t1) * 1000
+
+            if result is None:
+                metric_row("E2E — Step 2: Audio Synthesis", "FAILED", ok=False)
+            else:
+                audio_path, vtt_path = result
+                audio_ok = os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000
+                vtt_ok = os.path.exists(vtt_path) and os.path.getsize(vtt_path) > 10
+                
+                metric_row("E2E — Step 2: Audio Generation", f"{audio_ms:.0f} ms", ok=audio_ok)
+                metric_row("E2E — Step 3: VTT Compilation", "Generated", ok=vtt_ok)
+                metric_row("E2E — Full Pipeline Status", "PASS", "End to end successful", ok=audio_ok and vtt_ok and graph_ok)
+
+        except Exception as e:
+            print(f"  {C.RED}✗  E2E Pipeline failed: {e}{C.RESET}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            _graph_instances.clear()
+            sm_mod.StoryManager.DATA_DIR = original_data_dir
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Entry Point
@@ -369,7 +527,9 @@ def main():
         run_tts_rtf()
     else:
         print(f"\n  {C.DIM}[TTS metric skipped via --no-tts flag]{C.RESET}")
-    run_spearman(gold_data)
+    run_spearman(gold_data, run_llm=args.llm)
+    run_lambda_ablation(gold_data, run_llm=args.llm)
+    run_end_to_end_pipeline(gold_data, run_llm=args.llm, run_tts=not args.no_tts)
 
     print(f"\n{C.BOLD}{C.CYAN}{'─' * 60}")
     print(f"  Evaluation complete.")

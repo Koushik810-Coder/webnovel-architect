@@ -10,6 +10,9 @@ from app.services.extraction import extract_chapter_intelligence, extract_chapte
 from app.services.wiki import save_character_wiki
 from app.core.graduation import check_graduation_status
 from app.core.story_manager import StoryManager
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 def normalize_id(name: str) -> str:
     """
@@ -127,6 +130,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     """
     chapter_counter, runtime_db = load_runtime(story_uuid)
     
+    logger.info(f"Ingesting chapter: '{title}' for story {story_uuid} using extractor '{extractor}'")
+    
     chapter_counter += 1
 
     from datetime import timezone
@@ -207,7 +212,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                             target_event_id = event_ids[target_idx]
                             graph.add_causal_edge(source_event_id, target_event_id)
                     except (ValueError, TypeError):
-                        print(f"[Warning] Invalid causal index '{target_idx}' in event {idx}")
+                        logger.warning(f"Invalid causal index '{target_idx}' in event {idx}")
                         
     elif active_names:
         # Fallback to the generic event if no specific events were extracted
@@ -254,7 +259,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Graduation Check & Voice Locking
             did_graduate = check_graduation_status(char)
             if did_graduate:
-                print(f"[EVENT] Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
+                logger.info(f"Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
                 
             # Grab existing wiki content
             from app.services.wiki import get_character_wiki_content, update_character_summary
@@ -328,7 +333,7 @@ def ingest_multiple_chapters(
                     scraped = scraper.scrape_chapter(url)
                     text = scraped.get("text")
                 except Exception as e:
-                    print(f"Error scraping {url}: {e}")
+                    logger.error(f"Error scraping {url}: {e}")
                     continue
             else:
                 continue

@@ -1,0 +1,49 @@
+Here are concrete, actionable improvements grouped by priority:
+
+---
+
+**Fix the evaluation immediately — this is the biggest credibility gap**
+
+Re-run the Spearman test using Neural-layer character arrays instead of spaCy. This is a one-script fix already flagged as Phase 7 priority and its absence is the single most damaging gap in the paper. Expand the test corpus to at least 3–5 chapters across 2–3 different novels to move from anecdote to benchmark. Add a second human annotator and report inter-annotator agreement (Cohen's Kappa) to validate the Gold Standard labels themselves.
+
+**Run a proper MOS listening study**
+
+Recruit 10–15 listeners and have them rate 60–90 second audio clips on voice distinctiveness, prosodic naturalness, and overall coherence using a standard 1–5 MOS scale. This is achievable in a weekend using a free tool like Google Forms or LimeSurvey. Without this, the paper produces audio drama and never checks if it sounds good — which is indefensible for the primary output of the system.
+
+**Address the bootstrapping problem directly**
+
+The Casting Paradox re-emerges in the first few chapters before the graph has enough topology to make meaningful rankings. The simplest fix is a cold-start heuristic: assign premium voice IDs to the first N named characters encountered (e.g. N=5), then let the decay PageRank take over from chapter 3 onward. Describe this explicitly, test it, and frame it as a two-phase assignment protocol. Right now the paper implicitly assumes the problem disappears but never shows it does.
+
+**Run a λ ablation study**
+
+Test λ ∈ {0.01, 0.03, 0.05, 0.10, 0.20} against your Spearman metric and report which value actually maximises correlation with human perception. This converts an unchosen constant into a genuinely tuned parameter and takes one afternoon of compute. Add a small table showing Spearman ρ across λ values. This single addition would significantly strengthen the methodology section.
+
+**Fix the Zero-GPU framing**
+
+Either rename the constraint to "Zero-Local-GPU" throughout the paper, which is accurate, or add a frank paragraph in §3.1 acknowledging that the Neural extraction layer uses remote GPU infrastructure via API, and that the Zero-GPU claim refers specifically to local hardware requirements. The current framing will be immediately challenged by any reviewer who notices the Groq/Gemini dependency.
+
+**Implement and benchmark the pre-warming step**
+
+Add a single startup call that runs a dummy graph traversal at initialisation, then re-measure latency at n=10 with pre-warming active. Report both cold-start and warm-start figures in Table 2. This is a 20-line code change that resolves what is currently described as a "production-breaking" limitation.
+
+**Describe the Voice Broker concretely**
+
+The paper never specifies how many voices are in the pool, how voice profiles are generated, how acoustic distinctiveness is maintained between characters, or what happens when the pool is exhausted. Add a §3.6 describing the Voice Broker mechanics: pool size, voice generation method (Edge TTS voice IDs, Kokoro speaker embeddings), the distinctiveness strategy, and the fallback behaviour when the pool runs dry. This is a core system component that is currently a black box.
+
+**Add weighted edges for at least two relationship polarities**
+
+You do not need full emotional valence to improve on binary edges. Simply adding a `conflict` edge type alongside `interacts_with` and `mentions` would meaningfully differentiate antagonists from allies. This could be extracted by the existing Neural NER layer with a small prompt modification — ask the LLM to classify each interaction as cooperative, neutral, or adversarial. Even this coarse three-way classification would make the PageRank scores narratively richer and address the most frequently cited limitation.
+
+**Extend the corpus to test graph stability at scale**
+
+Synthesise a realistic 200-chapter graph using character frequency distributions sampled from actual web fiction metadata (Royal Road provides public statistics). Run the full PageRank decay pipeline across this synthetic timeline and report whether scores remain stable, whether voice churn rate stays acceptable, and whether any degenerate graph structures emerge. This directly addresses the generalisability limitation without requiring you to process 200 chapters of actual text.
+
+**Add a comparison baseline**
+
+The paper currently compares Neural vs spaCy for extraction but has no system-level baseline. Implement a simple frequency-counting character ranker (the approach the paper explicitly rejects) and compare its Spearman correlation against the Temporal PageRank method on the same test chapter. Even a weak baseline makes the contribution legible — right now readers have to take on faith that the decay PageRank is better than a simpler approach.
+
+---
+
+**In order of impact:** Spearman re-run → MOS study → λ ablation → bootstrapping fix → Voice Broker description → pre-warming benchmark → Zero-GPU reframing → baseline comparison → weighted edges → scale stress test.
+
+The first four could be completed in a week and would transform the paper from an architecture proposal into a credible empirical contribution.

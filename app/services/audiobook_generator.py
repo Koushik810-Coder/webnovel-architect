@@ -8,6 +8,8 @@ from app.services.ingest import load_runtime, normalize_id
 from adapters.llm_adapter import analyze_text_json
 import yaml
 
+from app.core.logger import get_logger
+logger = get_logger(__name__)
 
 def _run_async(coro):
     """
@@ -38,7 +40,7 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "edge_tts"):
+def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "edge"):
     """
     Generates a full-chapter MP3 audiobook.
     
@@ -50,7 +52,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     Args:
         story_uuid (str): The unique identifier for the story.
         chapter_id (int): The ID of the chapter to generate audio for.
-        engine (str): The TTS engine to use ('edge_tts' or 'kokoro').
+        engine (str): The TTS engine to use ('edge' or 'kokoro').
         
     Returns:
         Optional[Tuple[str, str]]: Paths to the final compiled audio (MP3) and subtitle (VTT)
@@ -69,7 +71,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     # ── 2. Extract Script via LLM ─────────────────────────────────────────
     script_path = os.path.join(chapter_dir, "cached_script.json")
     if os.path.exists(script_path):
-        print(f"[Audiobook] Loading cached script from {script_path}")
+        logger.info(f"Loading cached script from {script_path}")
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
     else:
@@ -94,7 +96,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         full_script = []
         
         for idx, chunk in enumerate(text_chunks):
-            print(f"[Audiobook] Extracting script from chunk {idx+1}/{len(text_chunks)} via LLM...")
+            logger.info(f"Extracting script from chunk {idx+1}/{len(text_chunks)} via LLM...")
             prompt = f"""
 Convert this chapter text into an audiobook script. Break the text into logical segments.
 For each segment, determine if it is narration (spoken by the narrator) or dialogue (spoken by a specific character).
@@ -113,7 +115,7 @@ Chapter Text:
                 
                 # Check if default LLM hit rate limits and fell back to emitting an error dict
                 if "error" in script_res:
-                    print(f"[Audiobook] Primary LLM failed for chunk {idx+1}. Trying fallback to Gemini...")
+                    logger.warning(f"Primary LLM failed for chunk {idx+1}. Trying fallback to Gemini...")
                     script_res = analyze_text_json(prompt, model="gemini/gemini-2.5-flash")
                 
                 script_list = script_res.get("script", [])
@@ -124,7 +126,7 @@ Chapter Text:
                 raise RuntimeError(f"LLM extraction completely failed for chunk {idx+1}. Please verify your API keys and internet connection, or try again later. Details: {e}")
 
         script = full_script
-        print(f"[Audiobook] Script has {len(script)} segments total. Saving cache...")
+        logger.info(f"Script has {len(script)} segments total. Saving cache...")
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(script, f, indent=4)
 
@@ -159,7 +161,7 @@ Chapter Text:
         if char_id in runtime_db and runtime_db[char_id].voice_id:
             v_id = runtime_db[char_id].voice_id
             is_edge = v_id.startswith("en-")
-            if (engine == "edge_tts" and is_edge) or (engine == "kokoro" and not is_edge):
+            if (engine == "edge" and is_edge) or (engine == "kokoro" and not is_edge):
                 return v_id
 
         # Assign a consistent voice from the pool
@@ -193,7 +195,7 @@ Chapter Text:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return float(result.stdout.strip())
         except Exception as e:
-            print(f"Warning: Could not get duration for {file_path}: {e}")
+            logger.warning(f"Could not get duration for {file_path}: {e}")
             return 0.0
 
     def offset_vtt_timestamps(vtt_text: str, offset_seconds: float) -> str:
@@ -228,7 +230,7 @@ Chapter Text:
 
     for i, segment in enumerate(script):
         if os.path.exists("cancel_audio.flag"):
-            print("[Audiobook] Cancellation requested.")
+            logger.info("Cancellation requested.")
             return None
             
         speaker = segment.get("speaker", "Narrator")
@@ -240,7 +242,7 @@ Chapter Text:
         chunk_path = os.path.join(output_dir, f"{i:04d}_{speaker.replace(' ', '_')}.mp3")
         vtt_chunk_path = os.path.join(output_dir, f"{i:04d}_{speaker.replace(' ', '_')}.vtt")
 
-        print(f"  [{i+1}/{len(script)}] {speaker} ({voice}): {text[:40]}...")
+        logger.debug(f"[{i+1}/{len(script)}] {speaker} ({voice}): {text[:40]}...")
         
         async def _synthesize_edge_tts(t, v, p, p_vtt):
             import edge_tts
@@ -283,7 +285,7 @@ Chapter Text:
                 else:
                     raise Exception(f"Chunk {i} produced empty file.")
             except Exception as e:
-                print(f"  [ERROR] Attempt {attempt+1} failed for chunk {i}: {e}")
+                logger.error(f"Attempt {attempt+1} failed for chunk {i}: {e}")
                 if attempt == max_retries - 1:
                     with open("tts_debug_errors.log", "a") as dbg_log:
                         dbg_log.write(f"Chunk {i} failed after {max_retries} attempts: {e}\n")
@@ -294,11 +296,11 @@ Chapter Text:
         time.sleep(0.5) # Gentle rate limiting between chunks
 
     if not chunk_files:
-        print("[Audiobook] No audio chunks were generated. Aborting.")
+        logger.warning("No audio chunks were generated. Aborting.")
         return None
 
     # ── 5. Stitch Audio and Subtitles ─────────────────────────────────────────────
-    print(f"[Audiobook] Stitching {len(chunk_files)} segments via FFmpeg...")
+    logger.info(f"Stitching {len(chunk_files)} segments via FFmpeg...")
     list_path = os.path.join(output_dir, "concat_list.txt")
     with open(list_path, "w", encoding="utf-8") as f:
         for cf in chunk_files:
@@ -321,13 +323,13 @@ Chapter Text:
     try:
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            print(f"[Audiobook] FFmpeg stderr:\n{result.stderr}")
+            logger.error(f"FFmpeg stderr:\n{result.stderr}")
             return None
             
-        print(f"[Audiobook] Audio compilation successful: {final_audio_path}")
+        logger.info(f"Audio compilation successful: {final_audio_path}")
         
         # Compile VTTs
-        print("[Audiobook] Compiling VTT Subtitles...")
+        logger.info("Compiling VTT Subtitles...")
         cumulative_duration = 0.0
         
         with open(final_vtt_path, "w", encoding="utf-8") as f_out:
@@ -344,10 +346,10 @@ Chapter Text:
                 dur = get_audio_duration(chunk_file)
                 cumulative_duration += dur
                 
-        print(f"[Audiobook] VTT compilation successful: {final_vtt_path}")
+        logger.info(f"VTT compilation successful: {final_vtt_path}")
 
         return final_audio_path, final_vtt_path
         
     except Exception as e:
-        print(f"[Audiobook] Final compilation failed: {e}")
+        logger.error(f"Final compilation failed: {e}")
         return None

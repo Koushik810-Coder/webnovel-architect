@@ -39,6 +39,11 @@ if os.path.exists(env_path):
                 key, val = line.split('=', 1)
                 os.environ.setdefault(key.strip(), val.strip().strip('"\''))
 
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
+logger.info("Initializing Webnovel Architect Streamlit UI")
+
 # --- Page Config ---
 st.set_page_config(
     page_title="Webnovel Architect",
@@ -82,12 +87,15 @@ with st.sidebar:
         st.session_state['active_story_uuid'] = selected_uuid
     
     # Create New Story
-    with st.expander("➕ New Story"):
+    expander_label = "➕ New Story" + (" " if st.session_state.get('new_story_toggle') else "")
+    with st.expander(expander_label):
         with st.form("new_story_form"):
             new_name = st.text_input("Story Name")
             if st.form_submit_button("Create") and new_name:
                 new_uuid = StoryManager.create_story(new_name)
                 st.session_state['active_story_uuid'] = new_uuid
+                st.session_state['nav_radio'] = "Dashboard"
+                st.session_state['new_story_toggle'] = not st.session_state.get('new_story_toggle', False)
                 st.rerun()
                 
     # Manage Current Story
@@ -116,7 +124,8 @@ with st.sidebar:
     # Navigation Radio
     page = st.radio(
         "Navigation",
-        ["Dashboard", "Ingestion Engine", "Wiki Memory", "Knowledge Graph", "Story Q&A", "Audio Hub", "Evaluation"]
+        ["Dashboard", "Ingestion Engine", "Wiki Memory", "Knowledge Graph", "Story Q&A", "Audio Hub", "Evaluation"],
+        key="nav_radio"
     )
     
     st.divider()
@@ -306,11 +315,21 @@ elif page == "Ingestion Engine":
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
+                    from app.services.ingest import ingest_multiple_chapters, save_index_state, load_index_state
+
                     def update_progress(current, total):
                         progress_bar.progress(current / total)
                         status_text.text(f"Processing chapter {current} of {total}...")
+                        
+                        # Save state incrementally
+                        new_last_index = next_to_ingest + current - 1
+                        st.session_state['last_ingested_index'] = new_last_index
+                        saved_state = load_index_state(active_story_uuid)
+                        if saved_state is None:
+                            saved_state = {}
+                        saved_state["last_ingested_index"] = new_last_index
+                        save_index_state(active_story_uuid, saved_state)
     
-                    from app.services.ingest import ingest_multiple_chapters, save_index_state, load_index_state
                     try:
                         chapters_to_process = index_chapters[next_to_ingest : next_to_ingest + batch_size]
                         
@@ -322,17 +341,6 @@ elif page == "Ingestion Engine":
                             decay_rate=decay_rate,
                             progress_callback=update_progress
                         )
-                        
-                        # Update progress
-                        new_last_index = next_to_ingest + len(ingested) - 1
-                        st.session_state['last_ingested_index'] = new_last_index
-                        
-                        # Save state
-                        saved_state = load_index_state(active_story_uuid)
-                        if saved_state is None:
-                            saved_state = {}
-                        saved_state["last_ingested_index"] = new_last_index
-                        save_index_state(active_story_uuid, saved_state)
                         
                         st.success(f"Successfully processed {len(ingested)} chapters!")
                         st.balloons()
