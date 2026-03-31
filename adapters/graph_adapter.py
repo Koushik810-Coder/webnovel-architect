@@ -178,7 +178,7 @@ class GraphProvider:
 
     def save_graph(self):
         """Persists graph to JSON (Simple backup)."""
-        data = nx.node_link_data(self.graph)
+        data = nx.node_link_data(self.graph, edges="edges")
         with open(self.save_path, "w") as f:
             json.dump(data, f, indent=2)
 
@@ -187,7 +187,7 @@ class GraphProvider:
         if os.path.exists(self.save_path):
             with open(self.save_path, "r") as f:
                 data = json.load(f)
-            self.graph = nx.node_link_graph(data)
+            self.graph = nx.node_link_graph(data, edges="edges")
 
 # Instance mapping to preserve state across multiple stories simultaneously in memory
 _graph_instances = {}

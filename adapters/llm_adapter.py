@@ -32,6 +32,8 @@ def analyze_text(text: str, model: str = "groq/llama-3.1-8b-instant"):
             if attempt < 3:
                 time.sleep(2 ** attempt)  # Exponential backoff: 2s, 4s
     return f"API Fallback: I was unable to connect to the AI model ({model}) after 3 attempts. Please verify your API keys and network connection. Last known error: {str(last_error)}"
+
+
 def analyze_text_json(text: str, model: str = "groq/llama-3.1-8b-instant") -> dict:
     """
     Analyzes text using the specified LLM model and expects a JSON response.

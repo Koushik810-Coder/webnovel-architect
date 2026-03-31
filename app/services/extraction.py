@@ -179,11 +179,14 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
         
     dialogue_count = result.get("dialogue_count_total", 0)
     if not isinstance(dialogue_count, int):
-        try: dialogue_count = int(dialogue_count)
-        except: dialogue_count = 0
+        try:
+            dialogue_count = int(dialogue_count)
+        except (ValueError, TypeError):
+            dialogue_count = 0
         
     events = result.get("events", [])
-    if not isinstance(events, list): events = []
+    if not isinstance(events, list):
+        events = []
         
     # Deduplicate and sort
     active_characters = sorted(list(set(active_characters)))

@@ -287,13 +287,16 @@ Chapter Text:
             except Exception as e:
                 logger.error(f"Attempt {attempt+1} failed for chunk {i}: {e}")
                 if attempt == max_retries - 1:
-                    with open("tts_debug_errors.log", "a") as dbg_log:
+                    log_path = os.path.join(output_dir, "tts_debug_errors.log")
+                    with open(log_path, "a") as dbg_log:
                         dbg_log.write(f"Chunk {i} failed after {max_retries} attempts: {e}\n")
                     raise RuntimeError(f"Audio generation failed for chunk {i+1} after {max_retries} attempts. Engine error: {e}")
                 else:
                     time.sleep(2 * (attempt + 1))
         
-        time.sleep(0.5) # Gentle rate limiting between chunks
+        # Gentle rate limiting between API calls (not needed for offline engines)
+        if engine != "kokoro":
+            time.sleep(0.5)
 
     if not chunk_files:
         logger.warning("No audio chunks were generated. Aborting.")
