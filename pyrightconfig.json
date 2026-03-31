@@ -6,16 +6,23 @@
         "_trash",
         "_temp_voxnovel"
     ],
+    "venvPath": ".",
+    "venv": ".venv",
+    "extraPaths": ["."],
     "executionEnvironments": [
         {
             "root": ".",
+            "extraPaths": ["."]
+        },
+        {
+            "root": "tests",
             "extraPaths": ["."]
         }
     ],
     "pythonPlatform": "Windows",
     "pythonVersion": "3.13",
     "typeCheckingMode": "basic",
-    "reportMissingImports": "warning",
+    "reportMissingImports": "none",
     "reportMissingModuleSource": "none",
     "reportOptionalMemberAccess": "warning",
     "reportGeneralTypeIssues": "warning"
