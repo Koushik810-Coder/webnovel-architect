@@ -28,22 +28,23 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
     quirks_list = "\n".join([f"- {q}" for q in character.notable_quirks])
     quirks_str = quirks_list if character.notable_quirks else "No notable quirks documented."
 
-    content = f"""<div style="float: right; width: 300px; border: 1px solid #ddd; padding: 15px; margin-left: 20px; background: #fafafa; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    content = f"""<div style="float: right; width: 300px; border: 1px solid rgba(128,128,128,0.2); padding: 15px; margin-left: 20px; background: rgba(128,128,128,0.05); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
   <h2 style="text-align: center; margin-top: 0; margin-bottom: 5px;">{character.display_name}</h2>
   
   <div style="margin-top: 15px;">
-    <b style="font-size: 1.1em; color: #333;">Biographical Information</b>
-    <hr style="margin: 8px 0; border: 0; border-top: 1px solid #ddd;">
+    <b style="font-size: 1.1em; opacity: 0.9;">Biographical Information</b>
+    <hr style="margin: 8px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.2);">
     <b>Status:</b> {character.status or "Unknown"}<br>
     <b>Age:</b> {character.age or "Unknown"}<br>
+    <b>Gender:</b> {character.gender or "Unknown"}<br>
     <b>Species:</b> {character.species or "Unknown"}<br>
     <b>Role:</b> {character.role or "Unknown"}<br>
     <b>Affiliations:</b> {affiliations_str}<br>
   </div>
   
   <div style="margin-top: 15px;">
-    <b style="font-size: 1.1em; color: #333;">Series Information</b>
-    <hr style="margin: 8px 0; border: 0; border-top: 1px solid #ddd;">
+    <b style="font-size: 1.1em; opacity: 0.9;">Series Information</b>
+    <hr style="margin: 8px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.2);">
     <b>First Appearance:</b> Chapter {character.first_appearance_chapter}<br>
     <b>Last Updated:</b> Chapter {character.last_updated_chapter}<br>
     <b>Aliases:</b> {aliases_str}
@@ -99,6 +100,9 @@ def parse_character_wiki(markdown: str) -> dict:
     age_match = re.search(r"<b>Age:</b> (.*?)<br>", markdown)
     if age_match: data["age"] = age_match.group(1).replace("Unknown", "").strip()
 
+    gender_match = re.search(r"<b>Gender:</b> (.*?)<br>", markdown)
+    if gender_match: data["gender"] = gender_match.group(1).replace("Unknown", "").strip()
+
     species_match = re.search(r"<b>Species:</b> (.*?)<br>", markdown)
     if species_match: data["species"] = species_match.group(1).replace("Unknown", "").strip()
 
@@ -110,21 +114,44 @@ def parse_character_wiki(markdown: str) -> dict:
         raw_affils = affil_match.group(1).replace("Unknown", "").strip()
         data["affiliations"] = [a.strip() for a in raw_affils.split(",") if a.strip()]
 
-    synopsis_match = re.search(r"## Synopsis\n(.*?)(?=\n## |$)", markdown, flags=re.DOTALL)
+    # Section boundary: stop at next ## heading OR at the HTML footer (<br, ---, **System)
+    SECTION_END = r"(?=\n## |\n<br|\n---|\n\*\*System|$)"
+
+    synopsis_match = re.search(r"## Synopsis\n(.*?)" + SECTION_END, markdown, flags=re.DOTALL)
     if synopsis_match: data["synopsis"] = synopsis_match.group(1).strip()
     
-    appearance_match = re.search(r"## Appearance\n(.*?)(?=\n## |$)", markdown, flags=re.DOTALL)
-    if appearance_match: data["appearance"] = appearance_match.group(1).replace("Appearance details not recorded.", "").strip()
+    appearance_match = re.search(r"## Appearance\n(.*?)" + SECTION_END, markdown, flags=re.DOTALL)
+    if appearance_match:
+        raw_appearance = appearance_match.group(1).replace("Appearance details not recorded.", "").strip()
+        data["appearance"] = raw_appearance
     
-    traits_match = re.search(r"## Personality & Traits\n(.*?)(?=\n## |$)", markdown, flags=re.DOTALL)
+    traits_match = re.search(r"## Personality & Traits\n(.*?)" + SECTION_END, markdown, flags=re.DOTALL)
     if traits_match:
         lines = traits_match.group(1).strip().split("\n")
-        data["personality_traits"] = [l.replace("- ", "").strip() for l in lines if l.strip() and not l.startswith("Personality")]
+        cleaned = [
+            l.lstrip("- ").strip() for l in lines
+            if l.strip()
+            and not l.startswith("Personality details")
+            and not l.startswith("<br")
+            and not l.startswith("---")
+            and "System Meta" not in l
+        ]
+        data["personality_traits"] = cleaned
         
-    quirks_match = re.search(r"## Quirks & Habits\n(.*?)(?=\n## |$)", markdown, flags=re.DOTALL)
+    quirks_match = re.search(r"## Quirks & Habits\n(.*?)" + SECTION_END, markdown, flags=re.DOTALL)
     if quirks_match:
         lines = quirks_match.group(1).strip().split("\n")
-        data["notable_quirks"] = [l.replace("- ", "").strip() for l in lines if l.strip() and not l.startswith("No notable")]
+        cleaned = [
+            l.lstrip("- ").strip() for l in lines
+            if l.strip()
+            and not l.startswith("No notable quirks")
+            and not l.startswith("<br")
+            and not l.startswith("---")
+            and "System Meta" not in l
+            and "Confidence" not in l
+            and "TTS Voice" not in l
+        ]
+        data["notable_quirks"] = cleaned
         
     return data
 
@@ -157,6 +184,7 @@ Respond STRICTLY with a valid JSON object matching this schema. If a field is un
     "synopsis": "A cohesive, chronological biography that seamlessly integrates the new events into their existing history. Keep it narrative and engaging.",
     "status": "Alive, Deceased, Missing, etc.",
     "age": "Their current perceived or stated age. Or null.",
+    "gender": "Their gender identity or presentation. Or null.",
     "species": "Their race or species. Or null.",
     "role": "Protagonist, Antagonist, Supporting, Mentor, etc.",
     "affiliations": ["Faction A", "Family B"],

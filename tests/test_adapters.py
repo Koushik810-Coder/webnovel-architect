@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, MagicMock
 
 from adapters.llm_adapter import analyze_text, get_model_info

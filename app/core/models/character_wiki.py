@@ -20,6 +20,7 @@ class CharacterWiki(BaseModel):
 
     species: Optional[str] = None
     age: Optional[str] = None
+    gender: Optional[str] = None
 
     personality_traits: List[str] = []
     notable_quirks: List[str] = []

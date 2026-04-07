@@ -12,7 +12,7 @@ Uses a pre-built mock graph to verify:
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from adapters.graph_adapter import GraphProvider
 
 

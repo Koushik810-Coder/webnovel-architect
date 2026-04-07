@@ -17,9 +17,10 @@ It uses a **Neuro-Symbolic** approach:
 
 *   **Modular "Switchboard" Architecture**: Swap LLM providers and TTS engines easily via adapters.
 *   **Dual Extraction Pipelines**: Utilizes both a LiteLLM-based structured extraction and a fallback spaCy NER pipeline.
-*   **Event Extraction**: Automatically detects narrative events and links them to characters.
-*   **Graph-Based Graduation**: Uses **PageRank** combined with **Temporal Decay** to determine "Main Character" status based on narrative centrality and recency.
-*   **Interactive UI**: Includes a fully-featured Streamlit user interface (`app_ui.py`) for dashboard tracking, ingestion, and wiki viewing.
+*   **Event Extraction & Weighted Edges**: Automatically detects narrative events and assigns qualitative intensity weights (1-5) matching character involvement.
+*   **Graph-Based Graduation**: Uses **Weighted PageRank** combined with **Temporal Decay** to determine "Main Character" status based on narrative centrality and recency.
+*   **Algorithmic Bootstrapping**: Implements a **Debut Prominence Quotient (DPQ)** to dynamically assign provisional voices to character introductions without resorting to hardcoded limits.
+*   **Interactive UIs**: Includes a fully-featured Streamlit user interface (`app_ui.py`) for dashboard tracking, plus a blinding **MOS Evaluator Dashboard** (`scripts/mos_eval_ui.py`) for human perceptual grading of generated audio.
 *   **Zero-GPU Compatible**: Designed to run on standard laptops using lightweight models and API-based extraction.
 
 ## Getting Started

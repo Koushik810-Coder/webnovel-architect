@@ -3,6 +3,7 @@ import json
 import os
 
 from app.core.logger import get_logger
+from app.core.graduation import DELTA_UPPER
 logger = get_logger(__name__)
 
 class GraphProvider:
@@ -28,21 +29,48 @@ class GraphProvider:
         self.graph.add_node(name, type="character", **attributes)
         self.save_graph()
 
-    def add_event(self, event_id: str, description: str, involved_entities: list, chapter_id: int = 0, pre_conditions: str = "", post_conditions: str = "", location: str = "Unknown"):
-        """Adds an event node (DEU) and edges to involved entities."""
+    def add_event(
+        self,
+        event_id: str,
+        description: str,
+        involved_entities: list,
+        chapter_id: int = 0,
+        pre_conditions: str = "",
+        post_conditions: str = "",
+        location: str = "Unknown",
+        relation_type: str = "participant",
+        intensity: int = 1,
+    ):
+        """Adds an event node (DEU) and edges to involved entities.
+
+        Args:
+            relation_type: Qualitative relationship type (e.g. 'hostile', 'friendly', 'combat').
+            intensity: Narrative intensity weight 1-5 (1=minor, 5=climactic).
+                       Used as the edge weight for weighted PageRank.
+        """
         self.graph.add_node(
-            event_id, 
-            type="event", 
-            description=description, 
+            event_id,
+            type="event",
+            description=description,
             chapter_id=chapter_id,
             pre_conditions=pre_conditions,
             post_conditions=post_conditions,
-            location=location
+            location=location,
         )
         for entity in involved_entities:
             if self.graph.has_node(entity):
-                self.graph.add_edge(entity, event_id, relation="participant", chapter_id=chapter_id)
-                self.graph.add_edge(event_id, entity, relation="featured", chapter_id=chapter_id)
+                self.graph.add_edge(
+                    entity, event_id,
+                    relation=relation_type,
+                    chapter_id=chapter_id,
+                    weight=float(intensity),
+                )
+                self.graph.add_edge(
+                    event_id, entity,
+                    relation="featured",
+                    chapter_id=chapter_id,
+                    weight=float(intensity),
+                )
         self.save_graph()
 
     def add_causal_edge(self, source_event_id: str, target_event_id: str, relation_type: str = "causes"):
@@ -107,41 +135,80 @@ class GraphProvider:
             
         return chain
 
+    def get_debut_prominence(self, name: str, debut_chapter_id: int) -> float:
+        """Debut Prominence Quotient (DPQ): measures a character's local dominance
+        within the debut chapter's interaction subgraph.
+
+        Replaces the hardcoded top-5 bootstrapping heuristic.
+        A character that drives >40% of the debut chapter's weighted interactions
+        is granted a provisional score of 0.16 (above the graduation threshold)
+        to survive their first-appearance voice assignment check.
+
+        Returns a score in [0.0, 1.0].
+        """
+        # Collect all events in the debut chapter
+        debut_event_ids = [
+            n for n, d in self.graph.nodes(data=True)
+            if d.get("type") == "event" and d.get("chapter_id") == debut_chapter_id
+        ]
+        if not debut_event_ids:
+            return 0.0
+
+        # Total weighted interactions in chapter
+        total_weight = 0.0
+        char_weight = 0.0
+        for ev_id in debut_event_ids:
+            for u, v, data in self.graph.edges(ev_id, data=True):
+                w = data.get("weight", 1.0)
+                total_weight += w
+                if u == name or v == name:
+                    char_weight += w
+
+        if total_weight == 0:
+            return 0.0
+        return char_weight / total_weight
+
     def get_character_importance(self, name: str, current_chapter: int = 0, decay_rate: float = 0.05) -> float:
         """
-        Calculates importance based on PageRank.
-        Applies a temporal decay based on how old the connection is relative to the current_chapter.
+        Calculates importance based on weighted PageRank plus Temporal Decay.
+
+        Bootstrapping uses Debut Prominence Quotient (DPQ) instead of a hardcoded
+        top-N list: a character that dominates their debut chapter's interactions
+        earns a provisional score until graph topology accumulates sufficient history.
         """
         if not self.graph.has_node(name):
             return 0.0
-        
+
         try:
-            # Calculate base PageRank
-            pagerank_scores = nx.pagerank(self.graph, alpha=0.85)
+            # Weighted PageRank — edges with higher intensity carry more authority
+            pagerank_scores = nx.pagerank(self.graph, alpha=0.85, weight="weight")
             base_score = float(pagerank_scores.get(name, 0.0))
-            
-            # Find the most recent event for this character to apply decay
+
+            # Find the most recent chapter this character participated in
             max_chapter = 0
             for u, v, data in self.graph.out_edges(name, data=True):
                 edge_chap = data.get("chapter_id", 0)
                 max_chapter = max(max_chapter, edge_chap)
-                
-            # Compute multiplier
+
+            # Apply temporal decay: Score degrades as chapters pass without appearance
             if current_chapter > 0 and max_chapter > 0:
                 age = max(0, current_chapter - max_chapter)
                 temporal_multiplier = (1.0 - decay_rate) ** age
                 score = base_score * temporal_multiplier
             else:
                 score = base_score
-                
-            # Bootstrapping Paradox Mitigation
-            # The first 5 named characters introduced operate functionally as main cast.
-            # They receive a guaranteed minimum voice threshold assignment until the graph topology matures.
-            intro_order = self.graph.nodes[name].get("introduction_order", 999)
-            if intro_order <= 5:
-                # 0.16 guarantees they clear the 0.15 upper-bound assign threshold
-                return max(score, 0.16)
-                
+
+            # Debut Prominence Quotient (DPQ) — algorithmic bootstrapping
+            # If the character is new (first_seen == current_chapter), check whether
+            # they dominate the debut subgraph and warrant a provisional graduation.
+            first_seen = self.graph.nodes[name].get("last_seen_chapter", current_chapter)
+            if first_seen == current_chapter:
+                dpq = self.get_debut_prominence(name, debut_chapter_id=current_chapter)
+                # A character dominating >40% of debut chapter interactions is provisionally graduated
+                if dpq >= 0.40:
+                    logger.debug(f"DPQ provisional graduation for '{name}': dpq={dpq:.2f}")
+                    return max(score, DELTA_UPPER + 0.01)
+
             return score
         except Exception as e:
             logger.warning(f"Temporal PageRank failed: {e}, falling back to degree.")

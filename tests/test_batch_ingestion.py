@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, MagicMock
 from app.services.ingest import ingest_multiple_chapters
 

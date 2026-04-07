@@ -1,5 +1,4 @@
-from typing import List, Dict, Set
-import difflib
+from typing import List
 
 def resolve_aliases(names: List[str]) -> List[str]:
     """

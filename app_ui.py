@@ -27,7 +27,8 @@ from app.services.audiobook_generator import generate_chapter_audiobook
 from app.services.rag import query_story
 from app.services.extraction import extract_chapter_intelligence, extract_chapter_intelligence_llm
 from adapters.graph_adapter import GraphProvider, _graph_instances
-from adapters.tts_adapter import get_tts_engine, assign_voice
+from adapters.tts_adapter import get_tts_engine
+from app.services.voice_assignment import assign_voice
 
 # Load .env manually to ensure API keys are available
 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -316,7 +317,23 @@ elif page == "Ingestion Engine":
                 chapters_remaining = len(index_chapters) - next_to_ingest
                 batch_size = st.number_input("Number of chapters to ingest", min_value=1, max_value=chapters_remaining, value=min(5, chapters_remaining))
                 
-                if st.button(f"🚀 Process Next {batch_size} Chapters", type="primary", use_container_width=True):
+                # Setup Cancel Button above the process button
+                if st.session_state.get("generating_batch", False):
+                    if st.button("🚫 Stop Ingestion", type="secondary"):
+                        with open("cancel_ingestion.flag", "w") as f:
+                            f.write("cancel")
+                        st.session_state["generating_batch"] = False
+                        st.rerun()
+
+                start_batch = st.empty()
+                if not st.session_state.get("generating_batch", False):
+                    if start_batch.button(f"🚀 Process Next {batch_size} Chapters", type="primary", use_container_width=True):
+                        if os.path.exists("cancel_ingestion.flag"):
+                            os.remove("cancel_ingestion.flag")
+                        st.session_state["generating_batch"] = True
+                        st.rerun()
+                
+                if st.session_state.get("generating_batch", False):
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
@@ -347,10 +364,19 @@ elif page == "Ingestion Engine":
                             progress_callback=update_progress
                         )
                         
-                        st.success(f"Successfully processed {len(ingested)} chapters!")
-                        st.balloons()
+                        if os.path.exists("cancel_ingestion.flag"):
+                            st.warning(f"Batch ingestion was stopped. Successfully processed {len(ingested)} chapters before stopping.")
+                        else:
+                            st.success(f"Successfully processed {len(ingested)} chapters!")
+                            st.balloons()
                     except Exception as e:
                         st.error(f"Batch ingestion failed: {e}")
+                    finally:
+                        st.session_state["generating_batch"] = False
+                        if os.path.exists("cancel_ingestion.flag"):
+                            os.remove("cancel_ingestion.flag")
+                        # Do not rerun automatically to prevent clearing errors/success messages immediately
+                        # Let the user click 'Process Next' again.
                     
     # EPUB Chapter Selection
     elif 'parsed_epub_chapters' in st.session_state and st.session_state['parsed_epub_chapters']:
@@ -554,7 +580,7 @@ elif page == "Audio Hub":
                 try:
                     # Provide voice_id if None
                     if not voice:
-                        from adapters.tts_adapter import assign_voice
+                        from app.services.voice_assignment import assign_voice
                         voice = assign_voice(char)
                         
                     if asyncio.iscoroutinefunction(tts.generate_audio):
@@ -657,7 +683,11 @@ elif page == "Story Q&A":
                     st.error(f"Failed to generate answer: {e}")
 
 elif page == "Evaluation":
-    import json, time, math, os, tempfile
+    import json
+    import time
+    import math
+    import os
+    import tempfile
     import streamlit as st
 
     st.header("Phase 6 — Evaluation Harness")
@@ -783,7 +813,8 @@ elif page == "Evaluation":
                         tts = get_tts_engine(eng)
                         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                             out_p = tf.name
-                        import asyncio, inspect
+                        import asyncio
+                        import inspect
                         with st.spinner(f"Synthesizing with {eng}…"):
                             t0 = time.perf_counter()
                             if inspect.iscoroutinefunction(tts.generate_audio):

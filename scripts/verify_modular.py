@@ -7,9 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from adapters.tts_adapter import get_tts_engine
 from adapters.graph_adapter import get_graph_engine
-from app.core.graduation import check_graduation_status
 from app.services.ingest import ingest_chapter
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Mock the LLM adapter to avoid needing API keys for this test
 def mock_analyze_text(text, model="gemini/gemini-1.5-flash"):
@@ -55,9 +54,9 @@ def run_verification():
         chapter = ingest_chapter("Test Chapter", sample_text)
         
         if chapter:
-            print(f"PASS: Ingested chapter.")
+            print("PASS: Ingested chapter.")
         else:
-            print(f"FAIL: Ingestion failed.")
+            print("FAIL: Ingestion failed.")
             return
 
         # 5. Graph & Graduation

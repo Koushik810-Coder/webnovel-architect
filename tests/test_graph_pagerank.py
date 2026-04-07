@@ -14,7 +14,6 @@ Covers:
 
 import pytest
 import os
-import shutil
 import math
 from adapters.graph_adapter import GraphProvider
 
@@ -31,7 +30,6 @@ def clean_graph(tmp_path, monkeypatch):
 
 def _make_graph(tmp_path, monkeypatch):
     """Helper: create a fresh GraphProvider using the monkeypatched tmp dir."""
-    import app.core.story_manager as sm
     story_dir = os.path.join(str(tmp_path), TEST_UUID)
     os.makedirs(story_dir, exist_ok=True)
     return GraphProvider(TEST_UUID)

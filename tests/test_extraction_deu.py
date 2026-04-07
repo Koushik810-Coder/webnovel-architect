@@ -1,6 +1,4 @@
-import pytest
 from unittest.mock import patch
-from typing import Dict, Any
 from app.services.extraction import extract_chapter_intelligence_llm
 
 def test_extract_chapter_intelligence_llm_deu_format():

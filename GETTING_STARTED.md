@@ -69,6 +69,16 @@ python scripts/evaluate.py --no-tts
 
 # Run full suite (slow, compares spaCy vs LLM extraction)
 python scripts/evaluate.py --llm
+
+# Run multi-chapter Temporal Divergence test
+python scripts/evaluate.py --no-tts --llm
+
+### Option E: Run the MOS Evaluation Dashboard
+To manually grade synthesized audio generated from chapters (A/B testing for distinctness, fatigue, naturalness):
+
+```bash
+streamlit run scripts/mos_eval_ui.py
+```
 ```
 
 ---
@@ -90,10 +100,11 @@ Webnovel Architect turns text into audio using a 4-step Neuro-Symbolic pipeline:
     -   Edges: Character <-> Event (Participation).
 
 ### Step 3: Graduation & Voice Locking ("The Director")
--   **Method**: **PageRank Centrality**.
+-   **Method**: **Weighted PageRank Centrality**.
 -   **Logic**:
-    -   If `PageRank(character) > 0.15`: Graduate to **Main Cast**.
-    -   Assign specific Voice ID (locked for consistency).
+    *   If `PageRank(character) > 0.50`: Graduate to **Main Cast**.
+    *   If a character dominates their debut chapter (`DPQ >= 0.40`), they receive a **provisional** voice that drops if they disappear later.
+    *   Assign specific Voice ID (locked for consistency).
 
 ### Step 4: Synthesis ("The Voice")
 -   **Engine**: Selectable via `config.yaml` (Kokoro, EdgeTTS, etc.).

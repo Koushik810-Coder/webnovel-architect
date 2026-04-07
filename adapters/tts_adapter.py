@@ -3,7 +3,6 @@ import os
 import asyncio
 
 # Re-exported for convenience so app_ui.py can import from one place
-from app.services.voice_assignment import assign_voice
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)
@@ -16,7 +15,7 @@ class TTSProvider(ABC):
     """
     
     @abstractmethod
-    def generate_audio(self, text: str, voice_id: str, output_path: str):
+    def generate_audio(self, text: str, voice_id: str, output_path: str, **kwargs):
         """
         Generates audio from text using the specified voice.
 
@@ -50,7 +49,7 @@ class KokoroAdapter(TTSProvider):
             logger.error(f"Error initializing Kokoro: {e}")
             self.engine = None
 
-    def generate_audio(self, text, voice_id, output_path):
+    def generate_audio(self, text, voice_id, output_path, **kwargs):
         """
         Generates audio using the Kokoro TTS engine.
         
@@ -58,11 +57,13 @@ class KokoroAdapter(TTSProvider):
             text (str): The text to synthesize.
             voice_id (str): The voice ID to use for synthesis.
             output_path (str): The destination file path for the output audio.
+            **kwargs: Additional parameters like 'speed'.
         """
+        speed = kwargs.get('speed', 1.0)
         if self.engine:
             import soundfile as sf
             # kokoro-onnx .create() returns (audio_array, sample_rate)
-            samples, sample_rate = self.engine.create(text, voice=voice_id, speed=1.0, lang='en-us')
+            samples, sample_rate = self.engine.create(text, voice=voice_id, speed=speed, lang='en-us')
             sf.write(output_path, samples, sample_rate)
         else:
             logger.info(f"[Mock Kokoro] Generated audio for '{text}' to {output_path}")
@@ -74,7 +75,7 @@ class EdgeAdapter(TTSProvider):
     Runs online and acts as a free fallback if local engines are unavailable.
     """
     
-    def generate_audio(self, text, voice_id, output_path):
+    def generate_audio(self, text, voice_id, output_path, **kwargs):
         """
         Generates audio using the edge-tts library asynchronously.
         

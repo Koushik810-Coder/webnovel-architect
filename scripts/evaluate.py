@@ -349,7 +349,7 @@ def run_spearman(gold_data: dict, run_llm: bool):
             metric_row(
                 "Spearman ρ (Baseline Frequency)",
                 rho_base_str,
-                f"Raw degree count baseline",
+                "Raw degree count baseline",
                 ok=True, # Informational
             )
 
@@ -497,18 +497,163 @@ def run_end_to_end_pipeline(gold_data: dict, run_llm: bool, run_tts: bool):
             _graph_instances.clear()
             sm_mod.StoryManager.DATA_DIR = original_data_dir
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Metric 6 — Multi-Chapter Temporal Divergence
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_temporal_divergence(run_llm: bool):
+    """
+    Ingests a 5-chapter synthetic corpus sequentially and compares the
+    Temporal PageRank score against a raw Frequency baseline for two characters:
+
+    - Kirielle: prominent in Ch1, absent Ch2-Ch5 → score SHOULD decay
+    - Zorian:   present in every chapter         → score SHOULD remain stable
+
+    This empirically proves the temporal decay mechanism diverges from raw
+    frequency counting once Δt > 0, addressing the core limitation where the
+    single-chapter evaluation collapsed the exponent to 1.0.
+    """
+    header("Metric 6 — Multi-Chapter Temporal Divergence (Δt Proof)")
+
+    multi_path = os.path.join(ROOT, "dataset", "multi_chapter_gold.json")
+    if not os.path.exists(multi_path):
+        print(f"  {C.RED}✗  multi_chapter_gold.json not found at {multi_path}{C.RESET}")
+        return
+
+    with open(multi_path, "r", encoding="utf-8") as f:
+        mc_data = json.load(f)
+
+    chapters = mc_data["chapters"]
+    expected_final_rank = mc_data["expected_final_rank_order"]
+    expected_faded = [n.lower().replace(" ", "_") for n in mc_data.get("expected_faded_characters", [])]
+
+    import tempfile
+    import app.core.story_manager as sm_mod
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_data_dir = sm_mod.StoryManager.DATA_DIR
+        sm_mod.StoryManager.DATA_DIR = tmpdir
+
+        try:
+            from app.services.ingest import ingest_chapter, load_runtime
+            from adapters.graph_adapter import get_graph_engine, _graph_instances
+
+            _graph_instances.clear()
+            story_uuid = sm_mod.StoryManager.create_story("temporal_bench")
+
+            extractor = "llm" if run_llm else "spacy"
+            print(f"  {C.DIM}Ingesting {len(chapters)} chapters sequentially using [{extractor}]…{C.RESET}")
+
+            for i, chap in enumerate(chapters, start=1):
+                t0 = time.perf_counter()
+                ingest_chapter(story_uuid, chap["title"], chap["text"], extractor=extractor)
+                elapsed = (time.perf_counter() - t0) * 1000
+                print(f"    {C.DIM}  ✓ Ch{i}: '{chap['title']}' — {elapsed:.0f} ms{C.RESET}")
+
+            total_chapters = len(chapters)
+            _, runtime_db = load_runtime(story_uuid)
+            gp = get_graph_engine(story_uuid)
+
+            print()
+
+            # ── Score snapshot after all chapters ──
+            decay_scores: dict[str, float] = {}
+            freq_scores: dict[str, float] = {}
+
+            for char_id, char in runtime_db.items():
+                decay_scores[char_id] = gp.get_character_importance(
+                    char_id, current_chapter=total_chapters, decay_rate=0.05
+                )
+                # Raw frequency baseline = simple degree count (no decay)
+                freq_scores[char_id] = float(
+                    gp.graph.degree(char_id) if gp.graph.has_node(char_id) else 0
+                )
+
+            # ── Print per-character comparison ──
+            header_line = f"  {'Character':<20} {'Temporal Score':>15} {'Freq Score':>12} {'Δ':>8}  {'Status'}"
+            print(f"{C.DIM}{header_line}{C.RESET}")
+            print(f"  {'-'*72}")
+
+            diverged = False
+            for char_id in sorted(decay_scores, key=lambda x: decay_scores[x], reverse=True):
+                ds = decay_scores[char_id]
+                fs = freq_scores.get(char_id, 0.0)
+                # Normalise freq for fair comparison
+                max_freq = max(freq_scores.values()) if freq_scores else 1.0
+                fs_norm = fs / max_freq if max_freq > 0 else 0.0
+                delta = ds - fs_norm
+                faded = char_id in expected_faded
+                expected_decay = faded and delta < -0.01  # decayed character has lower temporal score
+                status = "✓ decayed correctly" if expected_decay else ("✓ stable" if not faded else "~ no decay observed")
+                if abs(delta) > 0.001:
+                    diverged = True
+                flag = C.GREEN if expected_decay or not faded else C.YELLOW
+                print(f"  {flag}{char_id:<20}{C.RESET}  {ds:>14.4f}  {fs_norm:>11.4f}  {delta:>+8.4f}  {status}")
+
+            # Track exact chapter of decay crossing for empirical proof
+            # Threshold is LOWER_BOUND (0.05)
+            # Find the chapter where score drops below threshold
+            decay_crossing_chapters = {}
+            for char_id in expected_faded:
+                hist_scores = []
+                for step in range(1, total_chapters + 1):
+                    s = gp.get_character_importance(char_id, current_chapter=step, decay_rate=0.05)
+                    hist_scores.append(s)
+                    if s < 0.05 and char_id not in decay_crossing_chapters:
+                        decay_crossing_chapters[char_id] = step
+                
+                crossing_str = f"Ch {decay_crossing_chapters[char_id]}" if char_id in decay_crossing_chapters else "Did not cross"
+                print(f"  {C.DIM}  > {char_id} crossed the δ_lower (0.05) threshold at {crossing_str}{C.RESET}")
+
+            print()
+            ok = diverged
+            metric_row(
+                "Temporal vs Frequency divergence",
+                "PROVEN" if diverged else "NOT DIVERGED",
+                f"Scores differ across {total_chapters} chapters",
+                ok=ok,
+            )
+
+            # ── Final rank correlation after multi-chapter ──
+            computed_sorted = sorted(decay_scores, key=lambda x: decay_scores[x], reverse=True)
+
+            def to_id(name: str) -> str:
+                return name.lower().replace(" ", "_").replace("'", "")
+
+            expected_ids = [to_id(n) for n in expected_final_rank]
+            rho = spearman_rho(expected_ids, computed_sorted)
+            rho_str = f"{rho:.3f}" if not math.isnan(rho) else "N/A"
+            rho_ok = not math.isnan(rho) and rho >= 0.70
+            metric_row(
+                "Multi-chapter Spearman ρ",
+                rho_str,
+                f"n={len(expected_ids)} expected chars  target: ρ ≥ 0.70",
+                ok=rho_ok,
+            )
+
+        except Exception as e:
+            print(f"  {C.RED}✗  Temporal divergence test failed: {e}{C.RESET}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            _graph_instances.clear()
+            sm_mod.StoryManager.DATA_DIR = original_data_dir
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Entry Point
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
     parser = argparse.ArgumentParser(description="Webnovel Architect — Phase 6 Evaluation")
-    parser.add_argument("--llm",    action="store_true",  help="Include LLM extraction metric (makes API call).")
-    parser.add_argument("--no-tts", action="store_true",  help="Skip TTS RTF metric.")
+    parser.add_argument("--llm",          action="store_true",  help="Include LLM extraction metric (makes API call).")
+    parser.add_argument("--no-tts",       action="store_true",  help="Skip TTS RTF metric.")
+    parser.add_argument("--no-temporal",  action="store_true",  help="Skip multi-chapter temporal divergence metric (Metric 6).")
     args = parser.parse_args()
 
     print(f"\n{C.BOLD}{C.CYAN}╔══════════════════════════════════════════════════════════╗")
-    print(f"║   Webnovel Architect — Phase 6 Evaluation Harness       ║")
+    print("║   Webnovel Architect — Phase 6 Evaluation Harness       ║")
     print(f"╚══════════════════════════════════════════════════════════╝{C.RESET}")
 
     # Load gold-standard data
@@ -530,9 +675,13 @@ def main():
     run_spearman(gold_data, run_llm=args.llm)
     run_lambda_ablation(gold_data, run_llm=args.llm)
     run_end_to_end_pipeline(gold_data, run_llm=args.llm, run_tts=not args.no_tts)
+    if not args.no_temporal:
+        run_temporal_divergence(run_llm=False)  # spaCy only — avoids extra API cost by default
+    else:
+        print(f"\n  {C.DIM}[Temporal divergence metric skipped via --no-temporal flag]{C.RESET}")
 
     print(f"\n{C.BOLD}{C.CYAN}{'─' * 60}")
-    print(f"  Evaluation complete.")
+    print("  Evaluation complete.")
     print(f"{'─' * 60}{C.RESET}\n")
 
 

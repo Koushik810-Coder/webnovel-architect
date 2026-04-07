@@ -4,6 +4,7 @@ kokoro-onnx
 soundfile
 edge-tts
 networkx
+scipy
 pydantic
 pyyaml
 streamlit
@@ -11,3 +12,5 @@ pyvis
 beautifulsoup4
 requests
 spacy
+mypy
+ruff

@@ -195,8 +195,9 @@ Event:
 
 **Current Logic**
 
-- **PageRank Centrality** with integrated **Temporal Decay weights** (Implemented in `core/graduation.py` and `adapters/graph_adapter.py`).
-- Threshold-based Voice Locking (Implemented).
+- **Weighted PageRank Centrality** integrated with **Temporal Decay**.
+- **Debut Prominence Quotient (DPQ)**: Bootstraps new characters based on 1-chapter sub-graph dominance.
+- Threshold-based Voice Locking (`MAIN_CAST` threshold > 0.50).
     
 
 **Target Logic**
@@ -524,7 +525,7 @@ sequenceDiagram
 *   **Algorithm:** 
     *   *Background/Supporting Characters* = Standard Voice (Edge-TTS fallback).
     *   *Main Cast* = High Quality Voice (Kokoro ONNX local).
-*   **Logic:** As a character's "Centrality" (via PageRank scaled by Temporal Decay weights) increases in the graph, they "Graduate" above a static threshold (0.15) and receive premium voice assignment.
+*   **Logic:** As a character's "Centrality" (via **Weighted PageRank** scaled by Temporal Decay weights) increases in the graph, they "Graduate" above a static threshold (0.50) and receive premium voice assignment. Extremely dominant new characters bypass this temporarily via the **Debut Prominence Quotient (DPQ)** but can face provisional de-graduation if they vanish.
 
 
 
@@ -603,7 +604,8 @@ $$ Score = (PageRankCentrality \times TemporalDecay) $$
 
 ## 5. UI & Evaluation (Phases 5 & 6)
 *   **The Dashboard (app_ui.py):** A Streamlit SPA demonstrating the end-to-end pipeline. Includes real-time ingestion, a Knowledge Graph visualizer, a Wiki Memory browser, and a dedicated Evaluation trigger.
-*   **The Evaluation Harness (evaluate.py):** A deterministic test suite proving the system operates on a Zero-GPU footprint. Measures Entity Extraction (F1), Graph Traversal Latency, TTS Real-Time Factor (RTF), and Spearman rank correlation ($\rho > 0.70$) for character importance against human ground-truth.
+*   **The MOS Evaluator (mos_eval_ui.py):** A dedicated blind A/B audio testing Streamlit application designed to capture human Mean Opinion Scores (MOS). Validates vocal distinctiveness, naturalness, and listener fatigue in synthesized chapters.
+*   **The Evaluation Harness (evaluate.py):** A deterministic test suite proving the system operates on a Zero-GPU footprint. Measures Entity Extraction (F1), Graph Traversal Latency, TTS Real-Time Factor (RTF), and multi-chapter temporal divergence.
 
 ---
 

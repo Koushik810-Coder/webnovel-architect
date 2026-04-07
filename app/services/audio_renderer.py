@@ -1,4 +1,3 @@
-from app.services.voice_provider_dummy import DummyVoiceProvider
 from app.core.constants import NARRATOR_VOICE_ID
 
 _voice_provider = None

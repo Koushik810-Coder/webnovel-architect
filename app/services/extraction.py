@@ -133,10 +133,19 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     prompt = f"""
     Analyze the following chapter text and extract these elements:
     1. 'active_character_names': A list of unique character names present in the text. Normalize titles (e.g., return "Stark" instead of "Lord Stark").
-    2. 'active_world_terms': A list of unique world-building terms like locations, factions, magical systems, and ranks.
-    3. 'events': A list of significant events occurring in this chapter. Structure these as Dynamic Event Units (DEUs). Each event must have:
+    2. 'character_genders': A dictionary mapping the names from 'active_character_names' to their predicted gender ("male", "female", "neutral") based on pronouns or explicit context hints.
+    3. 'active_world_terms': A list of unique world-building terms like locations, factions, magical systems, and ranks.
+    4. 'events': A list of significant events occurring in this chapter. Structure these as Dynamic Event Units (DEUs). Each event must have:
         - 'action_summary': A brief string describing the action, e.g., "Lucian fights the Forest Troll".
         - 'involved_characters': A list of character names involved.
+        - 'relation_type': The dominant relationship type between involved characters in this event.
+          Choose ONE of: "friendly", "hostile", "combat", "neutral", "mentor", "romantic", "betrayal".
+        - 'intensity': An integer 1-5 representing the narrative weight of this event. YOU MUST USE THIS STRICT RUBRIC:
+          1 = Minor passing mention, shared presence without interaction.
+          2 = Brief casual conversation, background interaction.
+          3 = Significant sustained conversation, joint task, minor argument.
+          4 = Major argument, formal alliance, physical altercation, high emotional stakes.
+          5 = Life-altering event, fatal combat, catastrophic betrayal, world-changing magic use.
         - 'pre_conditions': A brief description of the state or situation *before* the event.
         - 'post_conditions': A brief description of the state or situation *after* the event.
         - 'location': The location where the event takes place (if mentioned, otherwise "Unknown").
@@ -147,12 +156,15 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     Respond STRICTLY with a valid JSON object matching this schema:
     {{
         "active_character_names": ["Name1", "Name2"],
+        "character_genders": {{"Name1": "male", "Name2": "female"}},
         "active_world_terms": ["Location1", "Faction1"],
         "dialogue_count_total": 5,
         "events": [
             {{
                 "action_summary": "Character1 discovers the ancient artifact",
                 "involved_characters": ["Character1"],
+                "relation_type": "neutral",
+                "intensity": 3,
                 "pre_conditions": "Character1 is searching the ruins.",
                 "post_conditions": "Character1 gains magical powers.",
                 "location": "Ancient Ruins",
@@ -194,6 +206,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     
     return {
         "active_character_names": active_characters,
+        "character_genders": result.get("character_genders", {}),
         "active_world_terms": active_world_terms,
         "dialogue_count_total": dialogue_count,
         "events": events,

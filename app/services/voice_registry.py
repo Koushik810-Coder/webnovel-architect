@@ -66,7 +66,7 @@ class VoiceRegistry:
             
         # Fallback 2: If ALL voices are reserved, allow reuse (last resort)
         if not available:
-            print(f"Warning: VoiceRegistry exhausted! Reusing a voice.")
+            print("Warning: VoiceRegistry exhausted! Reusing a voice.")
             available = pool if pool else list(self.voices_db.keys())
             
         if not available:

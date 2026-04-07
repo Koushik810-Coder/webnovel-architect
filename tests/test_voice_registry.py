@@ -7,7 +7,6 @@ pool exhaustion fallbacks, and voice recycling via release_voice.
 
 import pytest
 import json
-import os
 from app.services.voice_registry import VoiceRegistry
 
 

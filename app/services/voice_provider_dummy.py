@@ -1,4 +1,3 @@
-from app.core.voice_provider import VoiceProvider
 
 class DummyVoiceProvider:
     def select_voice(self, vocal_traits: dict) -> str:

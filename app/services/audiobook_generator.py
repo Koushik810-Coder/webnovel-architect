@@ -6,7 +6,6 @@ import subprocess
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime, normalize_id
 from adapters.llm_adapter import analyze_text_json
-import yaml
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)
@@ -103,9 +102,9 @@ For each segment, determine if it is narration (spoken by the narrator) or dialo
 Ensure every word from the text is included in a segment so the entire text is narrated seamlessly.
 
 Return a JSON object with a single list 'script'.
-Each item in the list should be an object: {{"speaker": "Narrator" or "Character Name", "text": "The actual text to read"}}
+Each item in the list should be an object: {"speaker": "Narrator" or "<The Specific Character's Name>", "text": "The actual text to read"}
 
-For dialogue, try to guess the character speaking if it is obvious from context. If it is narration, use "Narrator".
+For dialogue, try to guess the character speaking if it is obvious from context. Do NOT prefix the name with "Character Name:", return ONLY the character's name. If it is narration, use "Narrator".
 
 Chapter Text:
 {chunk}
@@ -138,23 +137,24 @@ Chapter Text:
 
     if engine == "kokoro":
         NARRATOR_VOICE = "am_adam"
-        CHARACTER_VOICES = ["af_bella", "af_nicole", "af_sarah", "am_michael", "bm_george", "bf_emma"]
+        MALE_VOICES = ["am_michael", "bm_george"]
+        FEMALE_VOICES = ["af_bella", "af_nicole", "af_sarah", "bf_emma"]
     else:
         NARRATOR_VOICE = "en-US-GuyNeural"
-        CHARACTER_VOICES = [
-            "en-US-AriaNeural",
-            "en-US-JennyNeural",
-            "en-US-DavisNeural",
-            "en-US-TonyNeural",
-            "en-GB-SoniaNeural",
-            "en-GB-RyanNeural",
-        ]
+        MALE_VOICES = ["en-US-DavisNeural", "en-US-TonyNeural", "en-GB-RyanNeural"]
+        FEMALE_VOICES = ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-SoniaNeural"]
+        
     _voice_assignments: dict = {}  # speaker name -> edge voice
-    _voice_idx = [0]
+    _male_idx = [0]
+    _female_idx = [0]
 
     def _get_voice_for_speaker(speaker: str) -> str:
         if speaker == "Narrator":
             return NARRATOR_VOICE
+
+        # Safeguard if older cache still has 'Character Name:' prefix
+        if speaker.startswith("Character Name: "):
+            speaker = speaker.replace("Character Name: ", "").strip()
 
         char_id = normalize_id(speaker)
         # Check if the runtime already has a voice compatible with current engine
@@ -164,10 +164,23 @@ Chapter Text:
             if (engine == "edge" and is_edge) or (engine == "kokoro" and not is_edge):
                 return v_id
 
-        # Assign a consistent voice from the pool
+        # Determine gender from wiki
+        gender = "neutral"
+        from app.services.wiki import get_character_wiki_content, parse_character_wiki
+        wiki_content = get_character_wiki_content(story_uuid, char_id)
+        if wiki_content:
+            parsed = parse_character_wiki(wiki_content)
+            gender = parsed.get("gender", "neutral").lower()
+
+        # Assign a consistent voice from the pool based on gender
         if speaker not in _voice_assignments:
-            _voice_assignments[speaker] = CHARACTER_VOICES[_voice_idx[0] % len(CHARACTER_VOICES)]
-            _voice_idx[0] += 1
+            if gender == "female":
+                _voice_assignments[speaker] = FEMALE_VOICES[_female_idx[0] % len(FEMALE_VOICES)]
+                _female_idx[0] += 1
+            else:
+                _voice_assignments[speaker] = MALE_VOICES[_male_idx[0] % len(MALE_VOICES)]
+                _male_idx[0] += 1
+                
         return _voice_assignments[speaker]
 
     # ── 4. Synthesize Audio Chunks ────────────────────────────────────────
@@ -186,7 +199,6 @@ Chapter Text:
     # Since we use `ffmpeg concat`, it's actually complicated to merge VTTs without reading the audio length.
     # Let's use a simpler heuristic: we will write individual `.vtt` files for each chunk, and use a python script to merge them by reading their lengths via ffprobe.
     
-    import math
 
     def get_audio_duration(file_path):
         """Returns audio duration in seconds using ffprobe."""

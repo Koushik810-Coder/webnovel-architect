@@ -13,7 +13,6 @@ Covers:
   - Names with hyphens and apostrophes
 """
 
-import pytest
 from app.services.alias_resolver import resolve_aliases, _is_word_substring
 
 

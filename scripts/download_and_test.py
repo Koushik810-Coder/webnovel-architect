@@ -1,6 +1,5 @@
 import os
 import urllib.request
-import json
 from core.ingestion import ingest_chapter_text
 from adapters.graph_adapter import get_graph_engine
 

@@ -187,15 +187,24 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 pre_conditions = event_data.get("pre_conditions", "")
                 post_conditions = event_data.get("post_conditions", "")
                 location = event_data.get("location", "Unknown")
-                
+                relation_type = event_data.get("relation_type", "participant")
+                # Clamp intensity to valid range 1-5
+                raw_intensity = event_data.get("intensity", 1)
+                try:
+                    intensity = max(1, min(5, int(raw_intensity)))
+                except (TypeError, ValueError):
+                    intensity = 1
+
                 graph.add_event(
-                    event_id, 
-                    action_summary, 
-                    valid_chars, 
+                    event_id,
+                    action_summary,
+                    valid_chars,
                     chapter_id=chapter_counter,
                     pre_conditions=pre_conditions,
                     post_conditions=post_conditions,
-                    location=location
+                    location=location,
+                    relation_type=relation_type,
+                    intensity=intensity,
                 )
         
         # Second pass: Process causal links now that all events exist
@@ -228,6 +237,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         new_score = graph.get_character_importance(char_id, current_chapter=chapter_counter, decay_rate=decay_rate)
         
         # Runtime Update
+        predicted_gender = intelligence.get("character_genders", {}).get(name, "neutral")
+        
         if char_id not in runtime_db:
             # New Character Discovery
             runtime_db[char_id] = CharacterRuntime(
@@ -245,10 +256,19 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 short_description=f"Appeared in Chapter {chapter_counter}",
                 first_appearance_chapter=chapter_counter,
                 last_updated_chapter=chapter_counter,
-                confidence=new_score
+                confidence=new_score,
+                gender=predicted_gender
             )
             save_character_wiki(story_uuid, wiki_entry)
             
+            # For new characters, evaluate DPQ right away so they get a voice if they dominate the chapter
+            char = runtime_db[char_id]
+            did_graduate = check_graduation_status(char, wiki_traits={"gender": predicted_gender})
+            if did_graduate:
+                logger.info(f"New Character {char.character_id} graduated via DPQ! Assigned Voice: {char.voice_id}")
+                wiki_entry.voice_id = char.voice_id
+                save_character_wiki(story_uuid, wiki_entry)
+                
         else:
             # Existing Character Update
             char = runtime_db[char_id]
@@ -256,11 +276,6 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             char.mention_count += 1
             char.confidence_score = new_score
             
-            # Graduation Check & Voice Locking
-            did_graduate = check_graduation_status(char)
-            if did_graduate:
-                logger.info(f"Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
-                
             # Grab existing wiki content
             from app.services.wiki import get_character_wiki_content, update_character_profile, parse_character_wiki
             existing_wiki_md = get_character_wiki_content(story_uuid, char_id)
@@ -269,6 +284,18 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             char_events_this_chapter = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
             event_text_block = "\n".join([f"- {e.get('action_summary')}" for e in char_events_this_chapter])
             
+            if event_text_block:
+                # LLM Parse existing wiki + events
+                profile_data = update_character_profile(existing_wiki_md, event_text_block, name)
+            else:
+                # Safely parse old fields without invoking the LLM
+                profile_data = parse_character_wiki(existing_wiki_md)
+                
+            # Graduation Check & Voice Locking
+            did_graduate = check_graduation_status(char, wiki_traits=profile_data)
+            if did_graduate:
+                logger.info(f"Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
+
             # Create a default wiki entry
             wiki_entry = CharacterWiki(
                 character_id=char_id,
@@ -279,18 +306,12 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 confidence=char.confidence_score,
                 voice_id=char.voice_id
             )
-            
-            if event_text_block:
-                # LLM Parse existing wiki + events
-                profile_data = update_character_profile(existing_wiki_md, event_text_block, name)
-            else:
-                # Safely parse old fields without invoking the LLM
-                profile_data = parse_character_wiki(existing_wiki_md)
                 
             if profile_data:
                 if profile_data.get("synopsis"): wiki_entry.long_description = profile_data["synopsis"]
                 if profile_data.get("status"): wiki_entry.status = profile_data["status"]
                 if profile_data.get("age"): wiki_entry.age = str(profile_data["age"])
+                if profile_data.get("gender"): wiki_entry.gender = str(profile_data["gender"])
                 if profile_data.get("species"): wiki_entry.species = profile_data["species"]
                 if profile_data.get("role"): wiki_entry.role = profile_data["role"]
                 if profile_data.get("appearance"): wiki_entry.appearance = profile_data["appearance"]
@@ -306,6 +327,17 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             
             # Update local state
             runtime_db[char_id] = char
+
+    # Phase 2: Iterate over all known characters to handle decay/de-graduation for absent characters
+    for char_id, char in runtime_db.items():
+        if char_id not in [normalize_id(n) for n in active_names]:
+            # They didn't appear, but their score decays due to time passing
+            decayed_score = graph.get_character_importance(char_id, current_chapter=chapter_counter, decay_rate=decay_rate)
+            char.confidence_score = decayed_score
+            
+            # Did they fall out of provisional MAIN_CAST status?
+            if check_graduation_status(char):
+                logger.info(f"Character {char_id} score decayed. Voice lock released.")
 
     # Atomically save all changes to disk
     save_runtime(story_uuid, chapter_counter, runtime_db)
@@ -332,6 +364,10 @@ def ingest_multiple_chapters(
     total = len(chapters)
     
     for i, chap_data in enumerate(chapters):
+        if os.path.exists("cancel_ingestion.flag"):
+            logger.info("Batch ingestion cancelled by user.")
+            break
+            
         title = chap_data.get("title", f"Chapter {i+1}")
         text = chap_data.get("text")
         

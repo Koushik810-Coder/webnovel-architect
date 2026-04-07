@@ -1,9 +1,6 @@
 from fastapi import HTTPException
 from app.services.characters import CHARACTER_RUNTIME
 from app.core.graduation import evaluate_graduation, GraduationLevel
-from fastapi import HTTPException
-from app.services.characters import CHARACTER_RUNTIME
-from app.core.graduation import evaluate_graduation, GraduationLevel
 
 from app.services.voice_assignment import assign_voice
 
