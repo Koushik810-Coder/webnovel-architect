@@ -91,46 +91,51 @@ def test_higher_lambda_decays_faster(tmp_path, monkeypatch):
     )
 
 
-# ── Test 4: Bootstrapping guarantee ──────────────────────────────────────────
+# ── Test 4: DPQ bootstrapping (provisional graduation on debut) ───────────────
 
-def test_first_five_characters_receive_bootstrapping_floor(tmp_path, monkeypatch):
+def test_dpq_grants_provisional_score_on_debut_chapter(tmp_path, monkeypatch):
     """
-    The first N=5 characters inserted into the graph must always return a
-    score >= 0.16, bypassing standard PageRank graduation.
+    A character that dominates > 40% of debut chapter interactions receives a
+    provisional score >= DELTA_UPPER + 0.01 on their debut chapter via DPQ.
+    This replaces the old hardcoded 'first 5 characters' floor.
     """
+    from app.core.graduation import DELTA_UPPER
     gp = _make_graph(tmp_path, monkeypatch)
+
+    # Single dominant character in chapter 1 with high-intensity interactions
+    gp.add_character("protagonist", {"display_name": "Protagonist"})
     for i in range(5):
-        char_id = f"main_{i}"
-        gp.add_character(char_id, {"display_name": f"Main {i}"})
-        gp.add_event(f"ev_{i}", f"Main{i} acts", [char_id], chapter_id=1)
+        gp.add_event(f"ev_{i}", f"Protagonist drives action {i}", ["protagonist"],
+                     chapter_id=1, intensity=5)
 
-    for i in range(5):
-        score = gp.get_character_importance(f"main_{i}", current_chapter=20, decay_rate=0.05)
-        assert score >= 0.16, (
-            f"main_{i} bootstrapping floor failed: got {score:.4f}, expected >= 0.16"
-        )
-
-
-def test_character_beyond_bootstrap_threshold_is_not_floored(tmp_path, monkeypatch):
-    """
-    The 6th character onwards (introduction_order > 5) must NOT receive
-    the bootstrapping floor — they rely purely on PageRank.
-    """
-    gp = _make_graph(tmp_path, monkeypatch)
-    # Add 5 bootstrap chars
-    for i in range(5):
-        gp.add_character(f"main_{i}", {"display_name": f"Main {i}"})
-        gp.add_event(f"ev_m{i}", f"Main{i} acts", [f"main_{i}"], chapter_id=1)
-
-    # Add a 6th character who appeared only once, then vanished for 20 chapters
-    gp.add_character("extra", {"display_name": "Extra"})
-    gp.add_event("ev_extra", "Extra walks by", ["extra"], chapter_id=1)
-
-    score = gp.get_character_importance("extra", current_chapter=20, decay_rate=0.20)
-    # With heavy decay (λ=0.20) over 19 chapters, score should be negligible
-    assert score < 0.16, (
-        f"Extra character should not receive bootstrapping floor, got {score:.4f}"
+    # On their debut chapter, DPQ should grant provisional graduation
+    score_debut = gp.get_character_importance("protagonist", current_chapter=1, decay_rate=0.05)
+    assert score_debut >= DELTA_UPPER + 0.01, (
+        f"DPQ should grant provisional graduation on debut: got {score_debut:.4f}, "
+        f"expected >= {DELTA_UPPER + 0.01:.4f}"
     )
+
+
+def test_dpq_boost_does_not_persist_indefinitely(tmp_path, monkeypatch):
+    """
+    The DPQ provisional boost only applies ON the debut chapter.
+    After many chapters of absence, temporal decay correctly erodes the score —
+    proving the old hardcoded floor was removed and the math is now honest.
+    """
+    gp = _make_graph(tmp_path, monkeypatch)
+
+    # Character appears only in chapter 1
+    gp.add_character("early_char", {"display_name": "Early Char"})
+    gp.add_event("ev_debut", "Early char acts", ["early_char"], chapter_id=1, intensity=3)
+
+    # At chapter 20 with lambda=0.20 (aggressive decay), score should have eroded
+    score_ch20 = gp.get_character_importance("early_char", current_chapter=20, decay_rate=0.20)
+    # With (1-0.20)^19 ~= 0.014 multiplier, score should be very low
+    assert score_ch20 < 0.16, (
+        f"After 19 chapters of absence with lambda=0.20, character should have decayed "
+        f"below 0.16, got {score_ch20:.4f}. Old hardcoded floor should be gone."
+    )
+
 
 
 # ── Test 5: Unknown node returns 0.0 ─────────────────────────────────────────
