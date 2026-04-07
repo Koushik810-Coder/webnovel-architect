@@ -38,6 +38,9 @@ models/
 _temp_voxnovel/
 output/
 tb*.txt
+batch*.txt
+collect_out.txt
+fresh_short.txt
 cancel_audio.flag
 *.log
 
@@ -95,18 +98,26 @@ Documents/Review/
 # DOCX unpack scratch directories (tool artifacts)
 unpacked_doc/
 unpacked_doc2/
+unpacked_doc3/
 unpacked_modified/
+unpacked_sync/
 
 # DOCX extraction scratch files
 docx_content.txt
 docx_extracted.txt
 docx_extracted2.txt
+docx_extracted3.txt
 
 # Eval/debug scratch dumps
 dump.txt
+diff_docs.py
+diff_out.txt
 eval_2_clean.txt
 eval_out.txt
 eval_out2.txt
+mypy_out.txt
+scan_results.txt
+wiki_output.txt
 
 # Word temporary lock files
 ~$*
@@ -116,3 +127,4 @@ apply_edits.py
 find_strings.py
 test_llm.py
 test_wiki_ingest.py
+extract.py

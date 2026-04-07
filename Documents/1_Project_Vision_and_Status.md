@@ -205,7 +205,8 @@ The **Webnovel Architect** project has successfully transitioned from a heuristi
 | **Phase 5** | Evaluation Harness & Metrics | ✅ **Completed** (Mar 2026) |
 | **Phase 6** | Story Q&A (Time-CoT RAG) | ✅ **Completed** (DyG-RAG DEUs) |
 | **Phase 7** | Synchronized Visualizer & Wiki Memory | ✅ **Completed** |
-| **Phase 8** | Advanced Optimization (Alias/Kuzu) | 🟡 **Partially Implemented** (Alias Resolution integrated) |
+| **Phase 8** | Multi-Chapter Validation & Ablation | ✅ **Completed** (Apr 2026) — λ ablation, recall=1.00, DPQ, weighted edges, MOS eval |
+| **Phase 9** | Advanced Optimization (Alias/Kuzu) | 🟡 **Partially Implemented** (Alias Resolution integrated) |
 
 ---
 
@@ -587,9 +588,9 @@ The previous "architecture drift" issue has been **resolved**. The implementatio
 | Capability | Readiness | Notes |
 |-----------|-----------|-------|
 | **Prototype Demonstration** | ✅ **High** | Fully functional demo ready |
-| **Research Validation** | 🟡 **Medium-High** | Core hypothesis testable, needs temporal weighting |
-| **Publication Submission** | 🟡 **Medium** | Needs ablation studies, baseline comparisons |
-| **Production Deployment** | 🟢 **Early Stage** | Functional but needs voice management, scalability |
+| **Research Validation** | ✅ **High** | Multi-chapter ablation complete; recall=1.00; λ=0.15 decay empirically proven |
+| **Publication Submission** | ✅ **High** | Paper complete with empirical results, ablation chart, MOS framework |
+| **Production Deployment** | 🟢 **Early Stage** | Functional but needs scalability work (KuzuDB, streaming) |
 
 ---
 
@@ -607,12 +608,12 @@ The previous "architecture drift" issue has been **resolved**. The implementatio
 
 ## 12. Repository Status
 
-**Last Updated:** 2026-02-10  
-**Git Status:** Clean (pushed to GitHub on 2026-02-09)  
-**Documentation:** Comprehensive (9 documents in `Documents/`)  
-**Code Quality:** Modular, well-commented, verified
+**Last Updated:** 2026-04-07  
+**Git Status:** Clean (all Phase 6–8 work committed)  
+**Documentation:** Comprehensive (Documents/ folder updated, Archive/ for legacy drafts)  
+**Code Quality:** Modular, mypy + ruff enforced, full test suite passing
 
-**Next Milestone:** Implement voice assignment system and temporal weighting for research paper.
+**Next Milestone:** Phase 9 — Advanced graph optimization (KuzuDB migration, streaming ingestion pipeline).
 
 ---
 
