@@ -3,6 +3,7 @@ import spacy
 from typing import Dict, Any
 
 from app.core.logger import get_logger
+from app.core.config import get_llm_model
 
 logger = get_logger(__name__)
 
@@ -110,10 +111,11 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
     potential_characters = sorted(list(names))
     extracted_world_terms = sorted(list(world_terms))
     
-    # 1. Detect Dialogue (Still using simple regex to count dialogue blocks)
     dialogue_pattern = r'"([^"]*)"'
     dialogues = re.findall(dialogue_pattern, text)
     dialogue_count = len(dialogues)
+    
+    logger.info(f"spaCy Extraction Complete | {len(potential_characters)} characters | {len(extracted_world_terms)} world terms | {dialogue_count} dialogue blocks")
     
     return {
         "active_character_names": potential_characters,
@@ -123,11 +125,13 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
         "raw_entities": {name: 1 for name in potential_characters}
     }
 
-def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-flash") -> Dict[str, Any]:
+def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, Any]:
     """
     Analyzes chapter text using an LLM.
     Returns metrics to update the Story Intelligence Engine.
     """
+    if model is None:
+        model = get_llm_model()
     from adapters.llm_adapter import analyze_text_json
     
     prompt = f"""
@@ -203,6 +207,8 @@ def extract_chapter_intelligence_llm(text: str, model: str = "gemini/gemini-2.5-
     # Deduplicate and sort
     active_characters = sorted(list(set(active_characters)))
     active_world_terms = sorted(list(set(active_world_terms)))
+    
+    logger.info(f"LLM Extraction Complete | {len(active_characters)} characters | {len(active_world_terms)} world terms | {len(events)} events | {dialogue_count} dialogue blocks")
     
     return {
         "active_character_names": active_characters,

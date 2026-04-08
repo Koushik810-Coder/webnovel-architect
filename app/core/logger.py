@@ -1,11 +1,12 @@
 import logging
 import sys
 import os
+from logging.handlers import RotatingFileHandler
 
 def get_logger(name: str) -> logging.Logger:
     """
     Returns a configured logger for the Webnovel Architect project.
-    It logs to both the console (stdout) and a central file.
+    It logs to both the console (stdout) and a central rotating file.
     """
     logger = logging.getLogger(name)
     
@@ -13,25 +14,42 @@ def get_logger(name: str) -> logging.Logger:
     if logger.hasHandlers():
         return logger
         
-    logger.setLevel(logging.INFO)
+    # Standard level is INFO for the logger itself
+    logger.setLevel(logging.DEBUG)
     
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    # Detailed formatter for files
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
     )
     
-    # Console Handler
+    # Cleaner formatter for console
+    console_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    # Console Handler (INFO and above)
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO)
-    ch.setFormatter(formatter)
+    ch.setFormatter(console_formatter)
     
-    # File Handler
+    # Rotating File Handler (DEBUG and above, 10MB limit, 5 backups)
     log_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'webnovel_architect.log')
-    fh = logging.FileHandler(log_file_path, encoding='utf-8')
-    fh.setLevel(logging.DEBUG)  # File gets more verbose logs if available
-    fh.setFormatter(formatter)
+    try:
+        fh = RotatingFileHandler(
+            log_file_path, 
+            maxBytes=10*1024*1024, 
+            backupCount=5, 
+            encoding='utf-8'
+        )
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(file_formatter)
+        logger.addHandler(fh)
+    except Exception as e:
+        # Fallback if file logging fails (e.g. permissions)
+        print(f"Warning: Could not initialize file logger at {log_file_path}: {e}")
     
     logger.addHandler(ch)
-    logger.addHandler(fh)
     
     # Prevent propagation to the root logger to avoid duplicate logs in some setups
     logger.propagate = False

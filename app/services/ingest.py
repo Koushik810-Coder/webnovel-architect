@@ -7,7 +7,13 @@ from app.core.models.chapter import Chapter
 from app.core.models.character_runtime import CharacterRuntime
 from app.core.models.character_wiki import CharacterWiki
 from app.services.extraction import extract_chapter_intelligence, extract_chapter_intelligence_llm
-from app.services.wiki import save_character_wiki
+from app.services.wiki import (
+    save_character_wiki,
+    load_character_wiki_json,
+    update_character_profile,
+    get_character_wiki_content,
+    apply_profile_updates,
+)
 from app.core.graduation import check_graduation_status
 from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
@@ -110,6 +116,11 @@ def save_index_state(story_uuid: str, state: Dict):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=4)
 
+
+# ---------------------------------------------------------------------------
+# Public ingestion functions
+# ---------------------------------------------------------------------------
+
 def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm", decay_rate: float = 0.05) -> Chapter:
     """
     Processes and ingests a single chapter for a given story.
@@ -132,6 +143,15 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     
     logger.info(f"Ingesting chapter: '{title}' for story {story_uuid} using extractor '{extractor}'")
     
+    # 2. Extract Intelligence FIRST — before committing any state to disk.
+    # If extraction fails the chapter_counter is never incremented, so the next
+    # attempt will reuse the same chapter slot (no off-by-one drift).
+    if extractor == "llm":
+        intelligence = extract_chapter_intelligence_llm(text)
+    else:
+        intelligence = extract_chapter_intelligence(text)
+
+    # Extraction succeeded — now it is safe to advance the counter and persist.
     chapter_counter += 1
 
     from datetime import timezone
@@ -144,18 +164,14 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     
     # Save chapter to disk
     save_chapter(story_uuid, chapter)
-    
-    # 2. Extract Intelligence
-    if extractor == "llm":
-        intelligence = extract_chapter_intelligence_llm(text)
-    else:
-        intelligence = extract_chapter_intelligence(text)
         
     active_names = intelligence.get("active_character_names", [])
     
-    # 2.5 Resolve Aliases
-    from app.services.alias_resolver import resolve_aliases
-    active_names = resolve_aliases(active_names)
+    # 2.5 Resolve Aliases — also capture the full alias map for wiki backfill
+    from app.services.alias_resolver import resolve_aliases_with_map
+    active_names, alias_map = resolve_aliases_with_map(active_names)
+    
+    logger.info(f"Intelligence extracted ({len(active_names)} active characters). Updating relational graph...")
     
     # 3. Graph Updates
     from adapters.graph_adapter import get_graph_engine
@@ -175,7 +191,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             involved_chars = event_data.get("involved_characters", [])
             
             # Resolve aliases for the involved characters
-            involved_chars = resolve_aliases(involved_chars)
+            involved_chars, _ = resolve_aliases_with_map(involved_chars)
             
             # Filter out characters that aren't in active_names to be safe
             valid_chars = [normalize_id(n) for n in involved_chars if normalize_id(n) in [normalize_id(an) for an in active_names]]
@@ -229,6 +245,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         description = f"Events of Chapter {chapter_counter}"
         graph.add_event(event_id, description, [normalize_id(n) for n in active_names], chapter_id=chapter_counter)
     
+    logger.info("Graph updated. Calculating PageRank and Temporal Runtime Milestones...")
+    
     # 4. Update Story Engine State (Runtime tracking)
     for name in active_names:
         char_id = normalize_id(name)
@@ -240,91 +258,128 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         predicted_gender = intelligence.get("character_genders", {}).get(name, "neutral")
         
         if char_id not in runtime_db:
-            # New Character Discovery
+            # ── New Character Discovery ────────────────────────────────────
             runtime_db[char_id] = CharacterRuntime(
                 character_id=char_id,
                 first_seen_chapter=chapter_counter,
                 last_seen_chapter=chapter_counter,
-                confidence_score=new_score, 
+                confidence_score=new_score,
                 mention_count=1
             )
-            
-            # Wiki Proposal
+
+            # Build event block for this character
+            char_events_new = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
+            event_text_block_new = "\n".join([f"- {e.get('action_summary')}" for e in char_events_new])
+
+            # LLM enrichment even on first appearance (if they have events)
+            if event_text_block_new:
+                first_profile = update_character_profile("", event_text_block_new, name)
+            else:
+                first_profile = {}
+
+            # Build aliases list: all surface forms from this chapter that map to this character
+            char_aliases = sorted({alias for alias, canon in alias_map.items() if canon == name and alias != name})
+
             wiki_entry = CharacterWiki(
                 character_id=char_id,
                 display_name=name,
-                short_description=f"Appeared in Chapter {chapter_counter}",
+                aliases=char_aliases,
+                short_description=(
+                    first_profile.get("short_description")
+                    or f"Appeared in Chapter {chapter_counter}."
+                ),
+                long_description=first_profile.get("synopsis"),
+                status=first_profile.get("status"),
+                age=first_profile.get("age"),
+                gender=first_profile.get("gender") or predicted_gender,
+                species=first_profile.get("species"),
+                role=first_profile.get("role"),
+                affiliations=first_profile.get("affiliations") or [],
+                appearance=first_profile.get("appearance"),
+                personality_traits=first_profile.get("personality_traits") or [],
+                notable_quirks=first_profile.get("notable_quirks") or [],
                 first_appearance_chapter=chapter_counter,
                 last_updated_chapter=chapter_counter,
                 confidence=new_score,
-                gender=predicted_gender
             )
             save_character_wiki(story_uuid, wiki_entry)
-            
-            # For new characters, evaluate DPQ right away so they get a voice if they dominate the chapter
+
+            # DPQ: evaluate graduation immediately in case they dominate the chapter
             char = runtime_db[char_id]
-            did_graduate = check_graduation_status(char, wiki_traits={"gender": predicted_gender})
+            did_graduate = check_graduation_status(char, wiki_traits={"gender": wiki_entry.gender or predicted_gender})
             if did_graduate:
                 logger.info(f"New Character {char.character_id} graduated via DPQ! Assigned Voice: {char.voice_id}")
                 wiki_entry.voice_id = char.voice_id
                 save_character_wiki(story_uuid, wiki_entry)
                 
         else:
-            # Existing Character Update
+            # ── Existing Character Update ──────────────────────────────────
             char = runtime_db[char_id]
             char.last_seen_chapter = chapter_counter
             char.mention_count += 1
             char.confidence_score = new_score
-            
-            # Grab existing wiki content
-            from app.services.wiki import get_character_wiki_content, update_character_profile, parse_character_wiki
-            existing_wiki_md = get_character_wiki_content(story_uuid, char_id)
-            
+
             # Find what happened to them this chapter
             char_events_this_chapter = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
             event_text_block = "\n".join([f"- {e.get('action_summary')}" for e in char_events_this_chapter])
-            
-            if event_text_block:
-                # LLM Parse existing wiki + events
-                profile_data = update_character_profile(existing_wiki_md, event_text_block, name)
-            else:
-                # Safely parse old fields without invoking the LLM
-                profile_data = parse_character_wiki(existing_wiki_md)
-                
+
+            # Load existing wiki from JSON sidecar (auto-migrates .md if needed)
+            old_wiki = load_character_wiki_json(story_uuid, char_id)
+
+            if not event_text_block:
+                # No new events — skip the LLM call and the save entirely (no change)
+                did_graduate = check_graduation_status(char, wiki_traits={"gender": old_wiki.gender if old_wiki else None})
+                if did_graduate:
+                    logger.info(f"Character {char.character_id} graduated (no events)! Voice: {char.voice_id}")
+                    if old_wiki:
+                        old_wiki = old_wiki.model_copy(update={"voice_id": char.voice_id, "confidence": char.confidence_score})
+                        save_character_wiki(story_uuid, old_wiki)
+                runtime_db[char_id] = char
+                continue
+
+            # Fetch the existing markdown for the LLM context (so it can write prose)
+            existing_wiki_md = get_character_wiki_content(story_uuid, char_id)
+
+            # LLM merge: existing bio + new events
+            profile_data = update_character_profile(existing_wiki_md, event_text_block, name)
+
             # Graduation Check & Voice Locking
             did_graduate = check_graduation_status(char, wiki_traits=profile_data)
             if did_graduate:
                 logger.info(f"Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
 
-            # Create a default wiki entry
-            wiki_entry = CharacterWiki(
-                character_id=char_id,
-                display_name=name,
-                short_description=f"First appeared in Chapter {char.first_seen_chapter}. Last seen in Chapter {char.last_seen_chapter}.",
-                first_appearance_chapter=char.first_seen_chapter,
-                last_updated_chapter=chapter_counter,
-                confidence=char.confidence_score,
-                voice_id=char.voice_id
-            )
-                
-            if profile_data:
-                if profile_data.get("synopsis"): wiki_entry.long_description = profile_data["synopsis"]
-                if profile_data.get("status"): wiki_entry.status = profile_data["status"]
-                if profile_data.get("age"): wiki_entry.age = str(profile_data["age"])
-                if profile_data.get("gender"): wiki_entry.gender = str(profile_data["gender"])
-                if profile_data.get("species"): wiki_entry.species = profile_data["species"]
-                if profile_data.get("role"): wiki_entry.role = profile_data["role"]
-                if profile_data.get("appearance"): wiki_entry.appearance = profile_data["appearance"]
-                
-                if isinstance(profile_data.get("affiliations"), list): 
-                    wiki_entry.affiliations = profile_data["affiliations"]
-                if isinstance(profile_data.get("personality_traits"), list): 
-                    wiki_entry.personality_traits = profile_data["personality_traits"]
-                if isinstance(profile_data.get("notable_quirks"), list): 
-                    wiki_entry.notable_quirks = profile_data["notable_quirks"]
-                    
+            # Build the updated wiki by applying LLM response on top of old data
+            # so no previously known field is silently erased
+            if old_wiki:
+                base_wiki = old_wiki.model_copy(update={
+                    "last_updated_chapter": chapter_counter,
+                    "confidence": char.confidence_score,
+                    "voice_id": char.voice_id,
+                })
+            else:
+                # Defensive fallback — shouldn't happen but safer than crashing
+                base_wiki = CharacterWiki(
+                    character_id=char_id,
+                    display_name=name,
+                    short_description=f"First appeared in Chapter {char.first_seen_chapter}.",
+                    first_appearance_chapter=char.first_seen_chapter,
+                    last_updated_chapter=chapter_counter,
+                    confidence=char.confidence_score,
+                    voice_id=char.voice_id,
+                )
+
+            # Merge alias backfill
+            char_aliases = sorted({alias for alias, canon in alias_map.items() if canon == name and alias != name})
+            if char_aliases:
+                existing_aliases = set(base_wiki.aliases or [])
+                merged_aliases = sorted(existing_aliases | set(char_aliases))
+                base_wiki = base_wiki.model_copy(update={"aliases": merged_aliases})
+
+            # Apply LLM overrides — only non-empty values win
+            wiki_entry = apply_profile_updates(base_wiki, profile_data)
+
             save_character_wiki(story_uuid, wiki_entry)
-            
+
             # Update local state
             runtime_db[char_id] = char
 
@@ -341,6 +396,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
 
     # Atomically save all changes to disk
     save_runtime(story_uuid, chapter_counter, runtime_db)
+    logger.info(f"Chapter {chapter_counter} ({title}) fully ingested and state persisted.")
     return chapter
 
 def ingest_multiple_chapters(
@@ -386,8 +442,15 @@ def ingest_multiple_chapters(
             else:
                 continue
                 
-        chapter = ingest_chapter(story_uuid, title, text, extractor, decay_rate)
-        ingested_chapters.append(chapter)
+        try:
+            chapter = ingest_chapter(story_uuid, title, text, extractor, decay_rate)
+            ingested_chapters.append(chapter)
+        except Exception as e:
+            # Stop the batch at the failed chapter so last_ingested_index stays
+            # at N-1 (already persisted by progress_callback).  The next
+            # user-triggered batch will start from this chapter automatically.
+            logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {e}")
+            raise
         
         if progress_callback is not None:
             progress_callback(i + 1, total)

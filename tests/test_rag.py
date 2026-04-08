@@ -65,8 +65,9 @@ def test_rag_retrieves_events_for_known_character(populated_graph, story_uuid):
 def test_rag_returns_not_found_for_unknown_entity(populated_graph, story_uuid):
     """A query about a character not in the graph should return a graceful message."""
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
-        from app.services.rag import query_story
-        result = query_story(story_uuid, "What did Gandalf do?")
+        with patch("app.services.rag.analyze_text", return_value="Mocked not found message"):
+            from app.services.rag import query_story
+            result = query_story(story_uuid, "What did Gandalf do?")
     # Should be a safe "not found" message, not a crash
     assert isinstance(result, str)
     assert len(result) > 0
@@ -137,8 +138,9 @@ def test_rag_falls_back_to_groq_when_primary_fails(populated_graph, story_uuid):
 
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
         with patch("app.services.rag.analyze_text", side_effect=mock_analyze):
-            from app.services.rag import query_story
-            result = query_story(story_uuid, "What did Zorian do?")
+            with patch("app.services.rag.get_llm_model", return_value="gemini/gemini-2.5-flash"):
+                from app.services.rag import query_story
+                result = query_story(story_uuid, "What did Zorian do?")
 
     assert len(call_log) == 2, f"Expected 2 LLM calls (primary + fallback), got: {call_log}"
     assert any("groq" in (m or "") for m in call_log), "Groq fallback was never called"

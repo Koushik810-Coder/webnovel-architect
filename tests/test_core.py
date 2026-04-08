@@ -50,6 +50,6 @@ def test_check_graduation_status_with_wiki_traits(mocker):
     assert check_graduation_status(char, wiki_traits=wiki_traits)
     assert char.voice_id == "v1"
     
-    # Assert assign_voice was called with the merged traits
+    # Assert assign_voice was called with character_id and the merged traits
     expected_traits = {"base_pitch": "high", "gender": "female", "personality": "bold"}
-    mock_assign.assert_called_once_with(expected_traits)
+    mock_assign.assert_called_once_with("hero", expected_traits)

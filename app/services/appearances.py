@@ -24,6 +24,6 @@ def register_appearance(character_id: str, chapter_id: int, dialogue_lines: int 
 
     # Lock voice only once
     if graduation == GraduationLevel.MAIN_CAST and runtime.voice_id is None:
-        runtime.voice_id = assign_voice(runtime.vocal_traits)
+        runtime.voice_id = assign_voice(character_id, runtime.vocal_traits)
 
     return runtime

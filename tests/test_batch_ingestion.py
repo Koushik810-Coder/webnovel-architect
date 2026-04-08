@@ -1,50 +1,61 @@
+"""
+tests/test_batch_ingestion.py
+==============================
+Tests for batch (multi-chapter) ingestion logic.
+"""
+
 from unittest.mock import patch, MagicMock
 from app.services.ingest import ingest_multiple_chapters
 
+
+# NOTE: @patch decorators are applied bottom-up, so the argument order
+# in the test function matches the decoration order from bottom to top.
+
+@patch('os.path.exists', return_value=False)   # prevent cancel_ingestion.flag from breaking tests
 @patch('app.services.ingest.ingest_chapter')
 @patch('app.services.scrapers.royalroad_scraper.RoyalRoadScraper.scrape_chapter')
-def test_ingest_multiple_chapters_with_urls(mock_scrape, mock_ingest):
-    # Mock data
+def test_ingest_multiple_chapters_with_urls(mock_scrape, mock_ingest, mock_exists):
+    """Chapters provided as URLs should be scraped then ingested."""
     chapters_input = [
         {"title": "Chapter 1", "url": "http://rr.com/1"},
-        {"title": "Chapter 2", "url": "http://rr.com/2"}
+        {"title": "Chapter 2", "url": "http://rr.com/2"},
     ]
-    
+
     mock_scrape.side_effect = [
         {"title": "Chapter 1", "text": "Content 1"},
-        {"title": "Chapter 2", "text": "Content 2"}
+        {"title": "Chapter 2", "text": "Content 2"},
     ]
-    
-    mock_chapter_obj = MagicMock()
-    mock_ingest.return_value = mock_chapter_obj
-    
-    # Progress callback
+
+    mock_ingest.return_value = MagicMock()
+
     progress_calls = []
     def callback(curr, total):
         progress_calls.append((curr, total))
-        
+
     results = ingest_multiple_chapters(
-        "test_story", 
-        chapters_input, 
-        extractor="spacy", 
-        progress_callback=callback
+        "test_story",
+        chapters_input,
+        progress_callback=callback,
     )
-    
+
     assert len(results) == 2
     assert mock_scrape.call_count == 2
     assert mock_ingest.call_count == 2
     assert progress_calls == [(1, 2), (2, 2)]
 
+
+@patch('os.path.exists', return_value=False)   # prevent cancel_ingestion.flag from breaking tests
 @patch('app.services.ingest.ingest_chapter')
-def test_ingest_multiple_chapters_with_text(mock_ingest):
+def test_ingest_multiple_chapters_with_text(mock_ingest, mock_exists):
+    """Chapters provided as pre-loaded text should be ingested directly."""
     chapters_input = [
         {"title": "Chapter 1", "text": "Content 1"},
-        {"title": "Chapter 2", "text": "Content 2"}
+        {"title": "Chapter 2", "text": "Content 2"},
     ]
-    
+
     mock_ingest.return_value = MagicMock()
-    
-    results = ingest_multiple_chapters("test_story", chapters_input, extractor="spacy")
-    
+
+    results = ingest_multiple_chapters("test_story", chapters_input)
+
     assert len(results) == 2
     assert mock_ingest.call_count == 2

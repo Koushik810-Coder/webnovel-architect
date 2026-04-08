@@ -3,6 +3,7 @@ import os
 import json
 import asyncio
 import subprocess
+import re
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime, normalize_id
 from adapters.llm_adapter import analyze_text_json
@@ -67,14 +68,16 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     with open(text_path, "r", encoding="utf-8") as f:
         chapter_text = f.read()
 
-    # ── 2. Extract Script via LLM ─────────────────────────────────────────
+    # ── 2. Extract Script via Deterministic Parsing + LLM ───────────────────
     script_path = os.path.join(chapter_dir, "cached_script.json")
     if os.path.exists(script_path):
         logger.info(f"Loading cached script from {script_path}")
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
     else:
-        # Chunk the chapter to avoid LLM output token limits and ensure full coverage
+        from app.services.narration import parse_chapter_to_script_blocks, resolve_dialogue_speakers
+
+        # Chunk the chapter to avoid LLM context windows being overwhelmed for speaker resolution
         MAX_CHAR_CHUNK = 6000
         paragraphs = chapter_text.split('\n\n')
         text_chunks = []
@@ -95,34 +98,22 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         full_script = []
         
         for idx, chunk in enumerate(text_chunks):
-            logger.info(f"Extracting script from chunk {idx+1}/{len(text_chunks)} via LLM...")
-            prompt = f"""
-Convert this chapter text into an audiobook script. Break the text into logical segments.
-For each segment, determine if it is narration (spoken by the narrator) or dialogue (spoken by a specific character).
-Ensure every word from the text is included in a segment so the entire text is narrated seamlessly.
-
-Return a JSON object with a single list 'script'.
-Each item in the list should be an object: {"speaker": "Narrator" or "<The Specific Character's Name>", "text": "The actual text to read"}
-
-For dialogue, try to guess the character speaking if it is obvious from context. Do NOT prefix the name with "Character Name:", return ONLY the character's name. If it is narration, use "Narrator".
-
-Chapter Text:
-{chunk}
-"""
-            try:
-                script_res = analyze_text_json(prompt)
+            logger.info(f"Extracting script from chunk {idx+1}/{len(text_chunks)} via deterministic parser...")
+            
+            blocks = parse_chapter_to_script_blocks(chunk)
+            # Resolve dialogue speakers using the LLM against the surrounding narration
+            logger.info(f"Resolving dialogue speakers for chunk {idx+1}/{len(text_chunks)} via LLM...")
+            resolved_blocks = resolve_dialogue_speakers(blocks)
+            
+            for b in resolved_blocks:
+                speaker = getattr(b, "speaker", None)
+                if speaker is None:
+                    speaker = "Narrator"
                 
-                # Check if default LLM hit rate limits and fell back to emitting an error dict
-                if "error" in script_res:
-                    logger.warning(f"Primary LLM failed for chunk {idx+1}. Trying fallback to Gemini...")
-                    script_res = analyze_text_json(prompt, model="gemini/gemini-2.5-flash")
-                
-                script_list = script_res.get("script", [])
-                if not script_list:
-                    raise ValueError("LLM returned empty script list")
-                full_script.extend(script_list)
-            except Exception as e:
-                raise RuntimeError(f"LLM extraction completely failed for chunk {idx+1}. Please verify your API keys and internet connection, or try again later. Details: {e}")
+                full_script.append({
+                    "speaker": speaker,
+                    "text": b.text
+                })
 
         script = full_script
         logger.info(f"Script has {len(script)} segments total. Saving cache...")
@@ -204,8 +195,11 @@ Chapter Text:
         """Returns audio duration in seconds using ffprobe."""
         try:
             cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
             return float(result.stdout.strip())
+        except subprocess.TimeoutExpired:
+            logger.error(f"ffprobe timed out for {file_path}")
+            return 0.0
         except Exception as e:
             logger.warning(f"Could not get duration for {file_path}: {e}")
             return 0.0
@@ -251,8 +245,9 @@ Chapter Text:
             continue
 
         voice = _get_voice_for_speaker(speaker)
-        chunk_path = os.path.join(output_dir, f"{i:04d}_{speaker.replace(' ', '_')}.mp3")
-        vtt_chunk_path = os.path.join(output_dir, f"{i:04d}_{speaker.replace(' ', '_')}.vtt")
+        safe_speaker = re.sub(r'[<>:"/\\|?*]', '', speaker).replace(' ', '_')
+        chunk_path = os.path.join(output_dir, f"{i:04d}_{safe_speaker}.mp3")
+        vtt_chunk_path = os.path.join(output_dir, f"{i:04d}_{safe_speaker}.vtt")
 
         logger.debug(f"[{i+1}/{len(script)}] {speaker} ({voice}): {text[:40]}...")
         
@@ -336,7 +331,7 @@ Chapter Text:
     ]
 
     try:
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             logger.error(f"FFmpeg stderr:\n{result.stderr}")
             return None
@@ -365,6 +360,9 @@ Chapter Text:
 
         return final_audio_path, final_vtt_path
         
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg audio compilation timed out after 300 seconds.")
+        return None
     except Exception as e:
         logger.error(f"Final compilation failed: {e}")
         return None

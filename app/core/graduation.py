@@ -39,7 +39,7 @@ def check_graduation_status(character: CharacterRuntime, wiki_traits: Optional[D
         if wiki_traits:
             merged_traits.update(wiki_traits)
             
-        character.voice_id = assign_voice(merged_traits)
+        character.voice_id = assign_voice(character.character_id, merged_traits)
         return True
         
     elif new_level != GraduationLevel.MAIN_CAST and character.voice_id is not None:

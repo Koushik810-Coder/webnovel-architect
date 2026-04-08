@@ -1,73 +1,52 @@
 from adapters.graph_adapter import get_graph_engine
 from adapters.llm_adapter import analyze_text
-import spacy
+import re
 
 from app.core.logger import get_logger
+from app.core.config import get_llm_model
 logger = get_logger(__name__)
 
-try:
-    nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger", "lemmatizer", "attribute_ruler", "tok2vec"])
-except:
-    nlp = None
-
-def query_story(story_uuid: str, query: str, model: str = "gemini/gemini-2.5-flash") -> str:
+def query_story(story_uuid: str, query: str, model: str = None) -> str:
     """
     RAG over the story graph using Time-CoT (Time Chain-of-Thought).
     Retrieves Dynamic Event Units (DEUs) from the graph and prompts the LLM chronologically.
     """
-    if nlp is None:
-        return "Failed to start RAG engine: spaCy model not loaded."
-
-    # 1. Entity Extraction from Query
-    doc = nlp(query)
-    query_entities = set()
-    for ent in doc.ents:
-        if ent.label_ in ["PERSON", "ORG", "GPE", "LOC", "FAC"]:
-            clean_name = ent.text.strip().lower().replace(" ", "_").replace("'s", "")
-            query_entities.add(clean_name)
+    if model is None:
+        model = get_llm_model()
 
     graph = get_graph_engine(story_uuid)
 
-    # Simple fallback: if no entities found by NER, just tokenize and check for capitalized words
-    if not query_entities:
-        words = query.split()
-        for i, w in enumerate(words):
-            if w[0].isupper() and i > 0: # Ignore first word of sentence
-                clean_name = w.strip('?.,!"\'').lower()
-                query_entities.add(clean_name)
-
-    # General Question Fallback (e.g., "Who is the main character?", "Summarize the story")
-    if not query_entities:
-        logger.info("No specific entities found in query. Falling back to top 5 characters by graph prominence.")
-        char_nodes = [n for n, d in graph.graph.nodes(data=True) if d.get("type") == "character"]
-        
-        if not char_nodes:
-            return "The story graph is currently empty. Please process some chapters first before asking general questions."
+    # 1. Deterministic Entity Extraction from Query
+    query_entities = set()
+    query_lower = query.lower()
+    
+    char_nodes = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "character"]
+    
+    for n, d in char_nodes:
+        names_to_check = [n.lower()]
+        if "display_name" in d:
+            names_to_check.append(d["display_name"].lower())
+        if "aliases" in d and isinstance(d["aliases"], list):
+            names_to_check.extend([a.lower() for a in d["aliases"]])
             
-        # Sort characters by their total degree (number of connected events)
-        sorted_chars = sorted(char_nodes, key=lambda c: graph.graph.degree(c), reverse=True)
-        import itertools
-        top_chars = list(itertools.islice(sorted_chars, 5))
-        
-        for c in top_chars:
-            query_entities.add(c)
+        for name in names_to_check:
+            # Word boundary check to prevent partial substring matches
+            pattern = r'\b' + re.escape(name) + r'\b'
+            if re.search(pattern, query_lower):
+                query_entities.add(n)
+                break
 
     # 2. Graph Retrieval
     retrieved_events = []
-    
-    # Track which event IDs we already grabbed to avoid duplicates
     seen_events = set()
     
+    # 2a. Specific Entity Retrieval
     for entity_id in query_entities:
-        # Check both the canonical character and any variants
-        # In a real system, you'd use the alias resolver here on query entities too.
         if graph.graph.has_node(entity_id):
-            # Characters have outgoing edges to events they participated in
             for u, event_id, edge_data in graph.graph.out_edges(entity_id, data=True):
                 if event_id not in seen_events and graph.graph.has_node(event_id) and graph.graph.nodes[event_id].get("type") == "event":
                     seen_events.add(event_id)
                     event_data = graph.graph.nodes[event_id]
-                    # Also find who else was in this event
                     involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
                     
                     retrieved_events.append({
@@ -79,8 +58,33 @@ def query_story(story_uuid: str, query: str, model: str = "gemini/gemini-2.5-fla
                         "participants": [p.replace("_", " ").title() for p in involved]
                     })
                     
+    # 2b. General Question Fallback Retrieval (Token Preserving)
     if not retrieved_events:
-        return f"I couldn't find any recorded events involving: {', '.join([e.title() for e in query_entities])} in the story graph."
+        logger.info("No specific entities found in query. Falling back to the 15 most recent global events.")
+        
+        all_events = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "event"]
+        if not all_events:
+            return "The story graph is currently empty. Please process some chapters first before asking general questions."
+            
+        # Sort by chapter_id globally
+        all_events.sort(key=lambda x: x[1].get("chapter_id", 0), reverse=True)
+        recent_events = all_events[:15]
+        
+        for event_id, event_data in recent_events:
+            if event_id not in seen_events:
+                seen_events.add(event_id)
+                involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
+                retrieved_events.append({
+                    "chapter_id": event_data.get("chapter_id", 0),
+                    "description": event_data.get("description", ""),
+                    "pre_conditions": event_data.get("pre_conditions", ""),
+                    "post_conditions": event_data.get("post_conditions", ""),
+                    "location": event_data.get("location", "Unknown"),
+                    "participants": [p.replace("_", " ").title() for p in involved]
+                })
+    if not retrieved_events:
+        return f"I couldn't find any recorded events in the story graph."
+
 
     # 3. Time-CoT Ordering
     # Sort chronologically by chapter_id

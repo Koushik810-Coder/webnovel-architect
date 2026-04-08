@@ -13,7 +13,7 @@ Covers:
   - Names with hyphens and apostrophes
 """
 
-from app.services.alias_resolver import resolve_aliases, _is_word_substring
+from app.services.alias_resolver import resolve_aliases, resolve_aliases_with_map, _is_word_substring
 
 
 # ── _is_word_substring unit tests ────────────────────────────────────────────
@@ -116,3 +116,56 @@ class TestResolveAliases:
         # (no case-folding on the output). Just ensure no crash.
         assert isinstance(result, list)
         assert len(result) >= 1
+
+
+# ── resolve_aliases_with_map tests ───────────────────────────────────────────
+
+class TestResolveAliasesWithMap:
+
+    def test_returns_tuple(self):
+        """Must return a 2-tuple of (list, dict)."""
+        result = resolve_aliases_with_map(["Aria"])
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        canonical, alias_map = result
+        assert isinstance(canonical, list)
+        assert isinstance(alias_map, dict)
+
+    def test_empty_input_returns_empty_tuple(self):
+        canonical, alias_map = resolve_aliases_with_map([])
+        assert canonical == []
+        assert alias_map == {}
+
+    def test_canonical_list_matches_resolve_aliases(self):
+        """The canonical list must be identical to what resolve_aliases returns."""
+        names = ["Aria", "Aria the Mage", "Zorian"]
+        canonical, _ = resolve_aliases_with_map(names)
+        assert canonical == resolve_aliases(names)
+
+    def test_alias_map_contains_all_inputs(self):
+        """Every input name must appear as a key in the alias map."""
+        names = ["Aria", "Aria the Mage", "Zorian"]
+        _, alias_map = resolve_aliases_with_map(names)
+        for name in names:
+            assert name in alias_map, f"'{name}' missing from alias_map"
+
+    def test_long_form_maps_to_short_canonical(self):
+        """'Aria the Mage' should map to 'Aria'."""
+        _, alias_map = resolve_aliases_with_map(["Aria", "Aria the Mage"])
+        assert alias_map["Aria the Mage"] == "Aria"
+        assert alias_map["Aria"] == "Aria"
+
+    def test_unrelated_names_map_to_themselves(self):
+        """Independent characters map to themselves."""
+        _, alias_map = resolve_aliases_with_map(["Zorian", "Kirielle"])
+        assert alias_map["Zorian"] == "Zorian"
+        assert alias_map["Kirielle"] == "Kirielle"
+
+    def test_multi_level_chain_maps_to_shortest(self):
+        """All variants in a chain ultimately map to the shortest form."""
+        names = ["Jon", "Jon Snow", "Jon Snow the Bastard"]
+        canonical, alias_map = resolve_aliases_with_map(names)
+        assert canonical == ["Jon"]
+        assert alias_map["Jon"] == "Jon"
+        assert alias_map["Jon Snow"] == "Jon"
+        assert alias_map["Jon Snow the Bastard"] == "Jon"

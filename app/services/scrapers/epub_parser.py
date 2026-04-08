@@ -5,6 +5,9 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from typing import Dict, Any, List
 
+from app.core.logger import get_logger
+logger = get_logger(__name__)
+
 class EpubParser:
     """
     Parses EPUB files and extracts chapter text.
@@ -101,7 +104,7 @@ class EpubParser:
                                 })
                                 chapter_counter += 1
                     except Exception as e:
-                        print(f"EpubParser warning: Failed to read {html_path}: {e}")
+                        logger.warning(f"EpubParser warning: Failed to read {html_path}: {e}")
                         continue
                         
         return chapters

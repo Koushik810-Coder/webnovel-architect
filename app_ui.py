@@ -2,6 +2,17 @@
 import streamlit as st
 import streamlit.components.v1 as components  # noqa
 import os
+
+# Load .env manually to ensure API keys are available BEFORE other imports
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(env_path):
+    with open(env_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, val = line.split('=', 1)
+                os.environ.setdefault(key.strip(), val.strip().strip('"\''))
+
 import json
 import time
 import math
@@ -30,20 +41,12 @@ from adapters.graph_adapter import GraphProvider, _graph_instances
 from adapters.tts_adapter import get_tts_engine
 from app.services.voice_assignment import assign_voice
 
-# Load .env manually to ensure API keys are available
-env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-if os.path.exists(env_path):
-    with open(env_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, val = line.split('=', 1)
-                os.environ.setdefault(key.strip(), val.strip().strip('"\''))
-
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
-logger.info("Initializing Webnovel Architect Streamlit UI")
+if "logger_initialized" not in st.session_state:
+    logger.info("Initializing Webnovel Architect Streamlit UI")
+    st.session_state["logger_initialized"] = True
 
 # --- Page Config ---
 st.set_page_config(
@@ -508,8 +511,10 @@ elif page == "Audio Hub":
                     if os.path.exists("cancel_audio.flag"):
                         st.info("Generation cancelled by user.")
                     else:
-                        st.error("Audiobook generation failed. Please check the terminal.")
+                        logger.error(f"Audiobook generation returned None for chapter {chapter_to_sync} (engine: {engine_type_ab}). Check log above for details.")
+                        st.error("Audiobook generation failed. Check the log file for details.")
             except Exception as e:
+                logger.error(f"Audiobook generation exception for chapter {chapter_to_sync}: {type(e).__name__}: {e}")
                 st.error(f"Error generating audiobook: {e}")
             finally:
                 st.session_state["generating_audiobook"] = False
