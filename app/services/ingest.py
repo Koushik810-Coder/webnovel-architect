@@ -164,25 +164,45 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     
     # Save chapter to disk
     save_chapter(story_uuid, chapter)
-        
+    
+    # Extract character relationships, events, and demographic data
+    intelligence = extract_chapter_intelligence(text, extractor=extractor)
     active_names = intelligence.get("active_character_names", [])
+    events = intelligence.get("events", [])
     
-    # 2.5 Resolve Aliases — also capture the full alias map for wiki backfill
-    from app.services.alias_resolver import resolve_aliases_with_map
-    active_names, alias_map = resolve_aliases_with_map(active_names)
-    
-    logger.info(f"Intelligence extracted ({len(active_names)} active characters). Updating relational graph...")
-    
-    # 3. Graph Updates
+    # 2.5 Resolve Aliases against existing graph characters to prevent cross-chapter duplicates
     from adapters.graph_adapter import get_graph_engine
     graph = get_graph_engine(story_uuid)
     
+    existing_char_names = [data.get("display_name", str(node)) for node, data in graph.graph.nodes(data=True) if data.get("type") == "character"]
+    from app.services.alias_resolver import resolve_aliases_with_map
+    
+    all_names = list(set(active_names + existing_char_names))
+    _, full_alias_map = resolve_aliases_with_map(all_names)
+    
+    # Map the isolated active_names for this chapter to their true global canonical names
+    original_active_names = active_names
+    active_names = list(set([full_alias_map.get(n, n) for n in active_names]))
+    
+    # We only care about the mapping subset that affects THIS chapter's characters
+    alias_map = {k: v for k, v in full_alias_map.items() if k in original_active_names or v in original_active_names}
+    
+    # 2.6 Propagate Gender Predictions to Canonical Names
+    raw_genders = intelligence.get("character_genders", {})
+    predicted_genders = {}
+    for raw_name, gender in raw_genders.items():
+        # Look up the newly resolved canonical name, or fall back to the raw name
+        canon = full_alias_map.get(raw_name, raw_name)
+        predicted_genders[canon] = gender
+    
+    logger.info(f"Intelligence extracted ({len(active_names)} active characters after alias collapsing). Updating relational graph...")
+    
+    # 3. Graph Updates
     # Add characters to graph
     for name in active_names:
         char_id = normalize_id(name)
         graph.add_character(char_id, {"display_name": name, "last_seen_chapter": chapter_counter})
             # Create an event to represent the occurrences in this chapter
-    events = intelligence.get("events", [])
     if events:
         # First pass: Create all events and store their generated IDs
         event_ids: list[str] = []
@@ -190,8 +210,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             action_summary = event_data.get("action_summary", "Unknown Event")
             involved_chars = event_data.get("involved_characters", [])
             
-            # Resolve aliases for the involved characters
-            involved_chars, _ = resolve_aliases_with_map(involved_chars)
+            # Map involved_chars using the global full_alias_map
+            involved_chars = list(set([full_alias_map.get(n, n) for n in involved_chars]))
             
             # Filter out characters that aren't in active_names to be safe
             valid_chars = [normalize_id(n) for n in involved_chars if normalize_id(n) in [normalize_id(an) for an in active_names]]
@@ -255,7 +275,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         new_score = graph.get_character_importance(char_id, current_chapter=chapter_counter, decay_rate=decay_rate)
         
         # Runtime Update
-        predicted_gender = intelligence.get("character_genders", {}).get(name, "neutral")
+        predicted_gender = predicted_genders.get(name, "neutral")
         
         if char_id not in runtime_db:
             # ── New Character Discovery ────────────────────────────────────
@@ -438,8 +458,12 @@ def ingest_multiple_chapters(
                     text = scraped.get("text")
                 except Exception as e:
                     logger.error(f"Error scraping {url}: {e}")
+                    if progress_callback is not None:
+                        progress_callback(i + 1, total)
                     continue
             else:
+                if progress_callback is not None:
+                    progress_callback(i + 1, total)
                 continue
                 
         try:
@@ -449,8 +473,11 @@ def ingest_multiple_chapters(
             # Stop the batch at the failed chapter so last_ingested_index stays
             # at N-1 (already persisted by progress_callback).  The next
             # user-triggered batch will start from this chapter automatically.
-            logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {e}")
-            raise
+            err_msg = str(e)
+            logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {err_msg}")
+            with open("cancel_ingestion.flag", "w") as f:
+                f.write(f"error: {err_msg}")
+            break
         
         if progress_callback is not None:
             progress_callback(i + 1, total)

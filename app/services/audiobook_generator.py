@@ -11,6 +11,11 @@ from adapters.llm_adapter import analyze_text_json
 from app.core.logger import get_logger
 logger = get_logger(__name__)
 
+# Module-level storage to maintain voice assignment consistency across multiple chapter generation calls
+_voice_assignments_session: dict = {}
+_male_idx_session = [0]
+_female_idx_session = [0]
+
 def _run_async(coro):
     """
     Safely executes an asynchronous coroutine, adapting to whether an event loop is already running.
@@ -78,7 +83,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         from app.services.narration import parse_chapter_to_script_blocks, resolve_dialogue_speakers
 
         # Chunk the chapter to avoid LLM context windows being overwhelmed for speaker resolution
-        MAX_CHAR_CHUNK = 6000
+        MAX_CHAR_CHUNK = 2500
         paragraphs = chapter_text.split('\n\n')
         text_chunks = []
         current_chunk = ""
@@ -134,10 +139,6 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         NARRATOR_VOICE = "en-US-GuyNeural"
         MALE_VOICES = ["en-US-DavisNeural", "en-US-TonyNeural", "en-GB-RyanNeural"]
         FEMALE_VOICES = ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-SoniaNeural"]
-        
-    _voice_assignments: dict = {}  # speaker name -> edge voice
-    _male_idx = [0]
-    _female_idx = [0]
 
     def _get_voice_for_speaker(speaker: str) -> str:
         if speaker == "Narrator":
@@ -164,15 +165,15 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
             gender = parsed.get("gender", "neutral").lower()
 
         # Assign a consistent voice from the pool based on gender
-        if speaker not in _voice_assignments:
+        if speaker not in _voice_assignments_session:
             if gender == "female":
-                _voice_assignments[speaker] = FEMALE_VOICES[_female_idx[0] % len(FEMALE_VOICES)]
-                _female_idx[0] += 1
+                _voice_assignments_session[speaker] = FEMALE_VOICES[_female_idx_session[0] % len(FEMALE_VOICES)]
+                _female_idx_session[0] += 1
             else:
-                _voice_assignments[speaker] = MALE_VOICES[_male_idx[0] % len(MALE_VOICES)]
-                _male_idx[0] += 1
+                _voice_assignments_session[speaker] = MALE_VOICES[_male_idx_session[0] % len(MALE_VOICES)]
+                _male_idx_session[0] += 1
                 
-        return _voice_assignments[speaker]
+        return _voice_assignments_session[speaker]
 
     # ── 4. Synthesize Audio Chunks ────────────────────────────────────────
     output_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "generated_audio", f"chapter_{chapter_id}")
@@ -272,7 +273,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
                 h, m, sec, ms = int(s // 3600), int((s % 3600) // 60), int(s % 60), int((s - int(s)) * 1000)
                 return f"{h:02d}:{m:02d}:{sec:02d}.{ms:03d}"
             with open(p_vtt, "w", encoding="utf-8") as file:
-                file.write(f"1\n00:00:00.000 --> {_fmt(dur)}\n{t}\n")
+                file.write(f"WEBVTT\n\n00:00:00.000 --> {_fmt(dur)}\n{t}\n")
 
         import time
         max_retries: int = 3 if engine != "kokoro" else 1
@@ -346,8 +347,15 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
             f_out.write("WEBVTT\n\n")
             
             for chunk_file, vtt_text in zip(chunk_files, chunk_vtts):
-                # Only process the VTT block body (skip WEBVTT header from each chunk)
-                vtt_body = "\n".join(vtt_text.split("\n")[2:]).strip()
+                # Clean up the payload: Strip any WEBVTT headers and any SRT integer cue IDs
+                vtt_body_lines = []
+                for line in vtt_text.split("\n"):
+                    stripped = line.strip()
+                    if stripped == "WEBVTT" or stripped.isdigit():
+                        continue
+                    vtt_body_lines.append(line)
+                    
+                vtt_body = "\n".join(vtt_body_lines).strip()
                 if vtt_body:
                     offset_body = offset_vtt_timestamps(vtt_body, cumulative_duration)
                     f_out.write(offset_body + "\n\n")

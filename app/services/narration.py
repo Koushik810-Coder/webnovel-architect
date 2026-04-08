@@ -20,16 +20,19 @@ def parse_chapter_to_script_blocks(chapter_text: str) -> List[ScriptBlock]:
     """
     blocks: List[ScriptBlock] = []
     
-    # Split text by everything wrapped in double quotes. 
-    # By grouping it `("[^"]+")`, the quotes and their contents are kept in the resulting list.
-    chunks = re.split(r'("[^"]+")', chapter_text)
+    # Split text by everything wrapped in standard OR curly double quotes. 
+    # By grouping it with outer parentheses, the quotes and their contents are kept in the resulting list.
+    chunks = re.split(r'("[^"]*"|“[^”]*”)', chapter_text)
     
     for chunk in chunks:
         stripped = chunk.strip()
         if not stripped:
             continue
             
-        if stripped.startswith('"') and stripped.endswith('"') and len(stripped) >= 2:
+        is_standard = stripped.startswith('"') and stripped.endswith('"')
+        is_curly = stripped.startswith('“') and stripped.endswith('”')
+        
+        if (is_standard or is_curly) and len(stripped) >= 2:
             # It's dialogue, strip the literal quotes
             dialogue_text = stripped[1:-1].strip()
             if dialogue_text:
@@ -81,7 +84,15 @@ Do NOT include any prefix like "Character Name:". Just the name.
         # We can use groq for fast resolution
         response = analyze_text_json(prompt, model="groq/llama-3.1-8b-instant")
         if "error" in response:
-            response = analyze_text_json(prompt, model="gemini/gemini-2.5-flash")
+            import yaml
+            try:
+                with open("config.yaml", "r") as f:
+                    cfg = yaml.safe_load(f)
+                    fallback = cfg.get("fallback_llm", "gemini/gemini-2.5-flash")
+            except Exception:
+                fallback = "gemini/gemini-2.5-flash"
+                
+            response = analyze_text_json(prompt, model=fallback)
             
         speakers_map = response.get("speakers", {})
     except Exception as e:

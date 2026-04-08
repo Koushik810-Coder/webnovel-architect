@@ -368,7 +368,12 @@ elif page == "Ingestion Engine":
                         )
                         
                         if os.path.exists("cancel_ingestion.flag"):
-                            st.warning(f"Batch ingestion was stopped. Successfully processed {len(ingested)} chapters before stopping.")
+                            with open("cancel_ingestion.flag", "r") as f:
+                                stop_reason = f.read().strip()
+                            if stop_reason.startswith("error:"):
+                                st.error(f"Batch ingestion stopped due to an error: {stop_reason[6:].strip()}.\nSuccessfully processed {len(ingested)} chapters before stopping.")
+                            else:
+                                st.warning(f"Batch ingestion was stopped. Successfully processed {len(ingested)} chapters before stopping.")
                         else:
                             st.success(f"Successfully processed {len(ingested)} chapters!")
                             st.balloons()
@@ -487,6 +492,19 @@ elif page == "Audio Hub":
                     f.write("cancel")
                 st.session_state["generating_audiobook"] = False
                 st.rerun()
+        else:
+            # Add a button to wipe cached_script.json and force re-extraction
+            from app.core.story_manager import StoryManager
+            import os
+            script_cache_path = os.path.join(StoryManager.DATA_DIR, active_story_uuid, "chapters", str(chapter_to_sync), "cached_script.json")
+            if os.path.exists(script_cache_path):
+                st.caption("✅ Script is currently cached (fast render).")
+                if st.button("🔄 Regenerate Script", help="Deletes the cached LLM dialogue script so it correctly re-parses with the new rules."):
+                    os.remove(script_cache_path)
+                    st.success("Script cache cleared! The LLM will re-extract during the next generation.")
+                    st.rerun()
+            else:
+                st.caption("⚠️ No script cached yet — will generate fresh.")
 
     # Generation Button
     start_placeholder = st.empty()
@@ -812,10 +830,13 @@ elif page == "Evaluation":
                 approx_dur = len(BENCH_TEXT.split()) / 150.0
 
                 tried = False
-                for eng in ["kokoro", "edge_tts"]:
+                for eng in ["kokoro", "edge"]:
                     try:
                         from adapters.tts_adapter import get_tts_engine
                         tts = get_tts_engine(eng)
+                        # Determine safe mock voice IDs for the test
+                        mock_voice = "af_heart" if eng == "kokoro" else "en-US-AriaNeural"
+                        
                         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                             out_p = tf.name
                         import asyncio
@@ -823,9 +844,9 @@ elif page == "Evaluation":
                         with st.spinner(f"Synthesizing with {eng}…"):
                             t0 = time.perf_counter()
                             if inspect.iscoroutinefunction(tts.generate_audio):
-                                asyncio.run(tts.generate_audio(BENCH_TEXT, None, out_p))
+                                asyncio.run(tts.generate_audio(BENCH_TEXT, mock_voice, out_p))
                             else:
-                                tts.generate_audio(BENCH_TEXT, None, out_p)
+                                tts.generate_audio(BENCH_TEXT, mock_voice, out_p)
                             wall = time.perf_counter() - t0
                         rtf = wall / approx_dur
                         c1, c2, c3 = st.columns(3)
@@ -883,9 +904,13 @@ elif page == "Evaluation":
                     c2.metric("Common Chars Compared", n_c)
                     c3.metric("Target", "ρ ≥ 0.70")
 
+                    # Pad computed rank with blanks if it's shorter than expected, and truncate if longer
+                    display_computed = computed_rank + [""] * max(0, len(expected_rank) - len(computed_rank))
+                    display_computed = display_computed[:len(expected_rank)]
+
                     rank_df = pd.DataFrame({
                         "Human Rank":    expected_rank,
-                        "Computed ID":   computed_rank[:int(len(expected_rank))]
+                        "Computed ID":   display_computed
                     })
                     st.dataframe(rank_df, use_container_width=True, hide_index=False)
 
