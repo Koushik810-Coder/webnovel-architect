@@ -210,12 +210,14 @@ elif page == "Ingestion Engine":
     
     st.subheader("Fetch from URL (Optional)")
     
-    # Load saved URL from index state if available
-    if 'saved_index_url' not in st.session_state:
-        from app.services.ingest import load_index_state
-        saved = load_index_state(active_story_uuid)
-        if saved and "source_url" in saved:
-            st.session_state['saved_index_url'] = saved["source_url"]
+    # Load saved URL from index state — always refresh for the current story
+    from app.services.ingest import load_index_state
+    saved = load_index_state(active_story_uuid)
+    if saved and "source_url" in saved:
+        st.session_state['saved_index_url'] = saved["source_url"]
+    elif 'saved_index_url' in st.session_state:
+        # No saved URL for this story — clear stale value from previous story
+        del st.session_state['saved_index_url']
     
     default_url = st.session_state.get('saved_index_url', "")
     
@@ -475,36 +477,38 @@ elif page == "Wiki Memory":
                 files,
                 format_func=lambda f: f.replace('.md', '').replace('_', ' ').title()
             )
-            with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
-                content = f.read()
-                
-            col1, col2, col3 = st.columns([6, 2, 2])
-            with col2:
-                from app.services.wiki import enrich_wiki_from_rag
-                if st.button("✨ Improve with RAG", use_container_width=True):
-                    with st.spinner("Enriching wiki using Graph RAG..."):
-                        char_id = selected_file.replace('.md', '')
-                        try:
-                            enrich_wiki_from_rag(active_story_uuid, char_id)
-                            st.success("Wiki enriched successfully!")
-                            # Small delay to let the user see the success message
-                            import time
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to enrich wiki: {e}")
-                            
-            with col3:
-                st.download_button(
-                    label="📥 Export Wiki Entry",
-                    data=content,
-                    file_name=selected_file,
-                    mime="text/markdown",
-                    use_container_width=True
-                )
-                
-            st.markdown("---")
-            st.markdown(content, unsafe_allow_html=True)
+            if not selected_file:
+                st.warning("No character selected.")
+            else:
+                with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                col1, col2, col3 = st.columns([6, 2, 2])
+                with col2:
+                    from app.services.wiki import enrich_wiki_from_rag
+                    if st.button("✨ Improve with RAG", use_container_width=True):
+                        with st.spinner("Enriching wiki using Graph RAG..."):
+                            char_id = selected_file.replace('.md', '')
+                            try:
+                                enrich_wiki_from_rag(active_story_uuid, char_id)
+                                st.success("Wiki enriched successfully!")
+                                import time
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to enrich wiki: {e}")
+
+                with col3:
+                    st.download_button(
+                        label="📥 Export Wiki Entry",
+                        data=content,
+                        file_name=selected_file,
+                        mime="text/markdown",
+                        use_container_width=True
+                    )
+
+                st.markdown("---")
+                st.markdown(content, unsafe_allow_html=True)
     else:
         st.warning(f"Wiki directory '{wiki_dir}' does not exist.")
     
@@ -595,7 +599,7 @@ elif page == "Audio Hub":
 
     if st.session_state.get("ab_success_msg"):
         st.success(st.session_state["ab_success_msg"])
-        st.session_state["ab_success_msg"] = "" # consume msg
+        st.session_state.pop("ab_success_msg", None)  # consume once
 
     if os.path.exists(final_audio_path) and os.path.exists(final_vtt_path):
         import base64
@@ -926,7 +930,7 @@ elif page == "Evaluation":
             with tempfile.TemporaryDirectory() as tmpd:
                 orig = sm_mod.StoryManager.DATA_DIR
                 sm_mod.StoryManager.DATA_DIR = tmpd
-                _graph_instances.clear()
+                _graph_instances.pop("bench", None)  # Only clear our benchmark key
                 try:
                     from app.services.ingest import ingest_chapter, load_runtime
                     story_id = sm_mod.StoryManager.create_story("eval_rho")
@@ -966,5 +970,5 @@ elif page == "Evaluation":
                 except Exception as e:
                     st.error(f"Spearman metric failed: {e}")
                 finally:
-                    _graph_instances.clear()
+                    _graph_instances.pop(story_id, None)  # Only clear eval key
                     sm_mod.StoryManager.DATA_DIR = orig
