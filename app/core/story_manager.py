@@ -143,3 +143,39 @@ class StoryManager:
         shutil.move(src_path, dst_path)
         logger.info(f"Soft deleted story UUID {story_uuid} -> moved to trash")
         return True
+
+    @classmethod
+    def wipe_story_data(cls, story_uuid: str) -> bool:
+        """Deletes all generated data (chapters, wiki, graph, runtime, index)
+        while preserving story.json metadata.  Gives a clean slate for re-ingestion.
+
+        Returns True if the wipe succeeded, False if the story folder doesn't exist.
+        """
+        story_path = os.path.join(cls.DATA_DIR, story_uuid)
+        if not os.path.exists(story_path):
+            return False
+
+        # Directories to completely remove and recreate
+        for subdir in ("chapters", "wiki", "generated_audio"):
+            dirpath = os.path.join(story_path, subdir)
+            if os.path.exists(dirpath):
+                shutil.rmtree(dirpath)
+            os.makedirs(dirpath, exist_ok=True)
+
+        # Individual data files to remove
+        for fname in ("runtime_db.json", "story_graph.json", "index_state.json"):
+            fpath = os.path.join(story_path, fname)
+            if os.path.exists(fpath):
+                os.remove(fpath)
+
+        # Re-initialize empty runtime so the system doesn't crash on load
+        runtime = {"chapter_counter": 0, "characters": {}}
+        with open(os.path.join(story_path, "runtime_db.json"), "w") as f:
+            json.dump(runtime, f, indent=4)
+
+        # Evict the cached graph instance so it reloads fresh
+        from adapters.graph_adapter import _graph_instances
+        _graph_instances.pop(story_uuid, None)
+
+        logger.info(f"Wiped all data for story UUID {story_uuid} (story.json preserved)")
+        return True

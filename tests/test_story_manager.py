@@ -170,3 +170,63 @@ def test_soft_delete_moves_to_trash():
 def test_soft_delete_nonexistent_returns_false():
     result = StoryManager.soft_delete_story("00000000-0000-0000-0000-000000000000")
     assert result is False
+
+
+# ── wipe_story_data ───────────────────────────────────────────────────────────
+
+def test_wipe_story_data_preserves_story_json():
+    uuid = StoryManager.create_story("Wipe Test")
+    result = StoryManager.wipe_story_data(uuid)
+    assert result is True
+    meta = StoryManager.get_story(uuid)
+    assert meta is not None
+    assert meta["name"] == "Wipe Test"
+
+
+def test_wipe_story_data_clears_chapters_and_wiki():
+    uuid = StoryManager.create_story("Wipe Test 2")
+    story_path = os.path.join(StoryManager.DATA_DIR, uuid)
+
+    # Simulate some data existing
+    os.makedirs(os.path.join(story_path, "chapters", "1"), exist_ok=True)
+    with open(os.path.join(story_path, "chapters", "1", "text.txt"), "w") as f:
+        f.write("Chapter text")
+    with open(os.path.join(story_path, "wiki", "hero.json"), "w") as f:
+        f.write("{}")
+    with open(os.path.join(story_path, "story_graph.json"), "w") as f:
+        f.write("{}")
+    with open(os.path.join(story_path, "index_state.json"), "w") as f:
+        f.write("{}")
+
+    StoryManager.wipe_story_data(uuid)
+
+    # Directories should exist but be empty
+    assert os.path.isdir(os.path.join(story_path, "chapters"))
+    assert os.listdir(os.path.join(story_path, "chapters")) == []
+    assert os.path.isdir(os.path.join(story_path, "wiki"))
+    assert os.listdir(os.path.join(story_path, "wiki")) == []
+
+    # Data files should be gone
+    assert not os.path.exists(os.path.join(story_path, "story_graph.json"))
+    assert not os.path.exists(os.path.join(story_path, "index_state.json"))
+
+
+def test_wipe_story_data_reinitializes_runtime():
+    uuid = StoryManager.create_story("Wipe Runtime")
+    story_path = os.path.join(StoryManager.DATA_DIR, uuid)
+
+    # Simulate a runtime with data
+    with open(os.path.join(story_path, "runtime_db.json"), "w") as f:
+        json.dump({"chapter_counter": 10, "characters": {"hero": {}}}, f)
+
+    StoryManager.wipe_story_data(uuid)
+
+    with open(os.path.join(story_path, "runtime_db.json")) as f:
+        runtime = json.load(f)
+    assert runtime["chapter_counter"] == 0
+    assert runtime["characters"] == {}
+
+
+def test_wipe_story_data_nonexistent_returns_false():
+    result = StoryManager.wipe_story_data("00000000-0000-0000-0000-000000000000")
+    assert result is False

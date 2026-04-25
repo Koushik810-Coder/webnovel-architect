@@ -89,6 +89,12 @@ with st.sidebar:
             format_func=lambda x: story_options[x],
             index=list(story_options.keys()).index(st.session_state['active_story_uuid']) if st.session_state['active_story_uuid'] in story_options else 0
         )
+        # Clear stale session state when switching to a different story
+        if selected_uuid != st.session_state['active_story_uuid']:
+            for _key in ('parsed_index_chapters', 'parsed_epub_chapters',
+                         'last_ingested_index', 'saved_index_url',
+                         'fetched_title', 'fetched_text'):
+                st.session_state.pop(_key, None)
         st.session_state['active_story_uuid'] = selected_uuid
     
     # Create New Story
@@ -101,6 +107,11 @@ with st.sidebar:
                 st.session_state['active_story_uuid'] = new_uuid
                 st.session_state['nav_radio'] = "Dashboard"
                 st.session_state['new_story_toggle'] = not st.session_state.get('new_story_toggle', False)
+                # Clear stale index/chapter data from the previous story
+                for _key in ('parsed_index_chapters', 'parsed_epub_chapters',
+                             'last_ingested_index', 'saved_index_url',
+                             'fetched_title', 'fetched_text'):
+                    st.session_state.pop(_key, None)
                 st.rerun()
                 
     # Manage Current Story
@@ -123,6 +134,28 @@ with st.sidebar:
             if st.button("🗑️ Delete Story", type="primary", use_container_width=True, disabled=not confirm_del):
                 StoryManager.soft_delete_story(cur_uuid)
                 st.session_state['active_story_uuid'] = None
+                for _key in ('parsed_index_chapters', 'parsed_epub_chapters',
+                             'last_ingested_index', 'saved_index_url',
+                             'fetched_title', 'fetched_text'):
+                    st.session_state.pop(_key, None)
+                st.rerun()
+
+            st.divider()
+            confirm_wipe = st.checkbox("Confirm data wipe", key=f"confirm_wipe_{cur_uuid}")
+            if st.button(
+                "🧹 Wipe All Data",
+                use_container_width=True,
+                disabled=not confirm_wipe,
+                help="Deletes chapters, wiki, graph, runtime, and index. Keeps the story name.",
+            ):
+                StoryManager.wipe_story_data(cur_uuid)
+                # Clear stale session state
+                for _key in ('parsed_index_chapters', 'parsed_epub_chapters',
+                             'last_ingested_index', 'saved_index_url',
+                             'fetched_title', 'fetched_text'):
+                    st.session_state.pop(_key, None)
+                st.success("All data wiped. Story is ready for fresh ingestion.")
+                import time; time.sleep(1)
                 st.rerun()
 
     st.divider()
