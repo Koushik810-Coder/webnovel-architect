@@ -4,6 +4,8 @@ from typing import Optional
 
 from app.core.models.character_wiki import CharacterWiki
 from app.core.story_manager import StoryManager
+from app.core.config import get_llm_model
+from adapters.llm_adapter import analyze_text_json
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)
@@ -144,15 +146,20 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
     filename = f"{character.character_id}.md"
     filepath = os.path.join(get_wiki_dir(story_uuid), filename)
 
-    # Safely format list fields
-    affiliations_str = ", ".join(character.affiliations) if character.affiliations else "Unknown"
-    aliases_str = ", ".join(character.aliases) if character.aliases else "None"
+    # Safely format list fields (filtering out any nulls)
+    affiliations_clean = [a for a in (character.affiliations or []) if a]
+    affiliations_str = ", ".join(affiliations_clean) if affiliations_clean else "Unknown"
+    
+    aliases_clean = [a for a in (character.aliases or []) if a]
+    aliases_str = ", ".join(aliases_clean) if aliases_clean else "None"
 
-    traits_list = "\n".join([f"- {t}" for t in character.personality_traits])
-    traits_str = traits_list if character.personality_traits else "Personality details not recorded."
+    traits_clean = [t for t in (character.personality_traits or []) if t]
+    traits_list = "\n".join([f"- {t}" for t in traits_clean])
+    traits_str = traits_list if traits_clean else "Personality details not recorded."
 
-    quirks_list = "\n".join([f"- {q}" for q in character.notable_quirks])
-    quirks_str = quirks_list if character.notable_quirks else "No notable quirks documented."
+    quirks_clean = [q for q in (character.notable_quirks or []) if q]
+    quirks_list = "\n".join([f"- {q}" for q in quirks_clean])
+    quirks_str = quirks_list if quirks_clean else "No notable quirks documented."
 
     content = f"""<div style="float: right; width: 300px; border: 1px solid rgba(128,128,128,0.2); padding: 15px; margin-left: 20px; background: rgba(128,128,128,0.05); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
   <h2 style="text-align: center; margin-top: 0; margin-bottom: 5px;">{character.display_name}</h2>
@@ -340,9 +347,6 @@ def update_character_profile(existing_wiki_md: str, new_events_text: str, charac
     if not new_events_text.strip() and not existing_wiki_md.strip():
         return {}
 
-    from adapters.llm_adapter import analyze_text_json
-    from app.core.config import get_llm_model
-
     prompt = f"""
 You are the loremaster for a webnovel. Your job is to update the canonical wiki profile of a character named '{character_name}'.
 
@@ -383,3 +387,82 @@ If a field is genuinely unknown, use null or an empty list — do NOT use placeh
     except Exception as e:
         logger.error(f"Failed to dynamically update profile for {character_name}. Error: {e}")
         return {}
+
+
+# ---------------------------------------------------------------------------
+# RAG-powered wiki enrichment
+# ---------------------------------------------------------------------------
+
+def enrich_wiki_from_rag(story_uuid: str, character_id: str) -> Optional[CharacterWiki]:
+    """
+    Re-generates a character's wiki by querying the full story graph with
+    Time-CoT RAG (rather than the per-chapter extractor).
+
+    The RAG query sees ALL events the character participated in across every
+    ingested chapter, producing a richer biography and more accurate fields.
+
+    Strategy:
+      1. Load the existing wiki (if any) as the base.
+      2. Run query_character_profile — full graph Time-CoT pass.
+      3. Merge the RAG result on top (non-empty fields win).
+      4. Persist the enriched wiki back to disk.
+
+    Returns the updated CharacterWiki, or None if enrichment produced nothing.
+    """
+    from app.services.rag import query_character_profile
+
+    # Load existing wiki to get display_name and preserve locked fields (e.g. voice_id)
+    existing = load_character_wiki_json(story_uuid, character_id)
+    if existing is None:
+        logger.warning(f"enrich_wiki_from_rag: no existing wiki for '{character_id}' — skipping.")
+        return None
+
+    character_name = existing.display_name
+    logger.info(f"RAG-enriching wiki for '{character_name}' ({character_id})…")
+
+    profile_data = query_character_profile(story_uuid, character_id, character_name)
+    if not profile_data:
+        logger.warning(f"RAG enrichment returned empty profile for '{character_id}'.")
+        return None
+
+    enriched = apply_profile_updates(existing, profile_data)
+    save_character_wiki(story_uuid, enriched)
+    logger.info(f"Wiki enriched and saved for '{character_name}'.")
+    return enriched
+
+
+def enrich_all_wikis_from_rag(story_uuid: str) -> dict:
+    """
+    Batch-enriches every character wiki in a story using RAG.
+
+    Iterates over all JSON sidecar files in the wiki directory and calls
+    enrich_wiki_from_rag for each character.
+
+    Returns a summary dict:
+        {
+            "enriched": ["char_id_1", ...],
+            "skipped":  ["char_id_2", ...],
+        }
+    """
+    wiki_dir = get_wiki_dir(story_uuid)
+    if not os.path.isdir(wiki_dir):
+        logger.warning(f"No wiki directory for story '{story_uuid}'.")
+        return {"enriched": [], "skipped": []}
+
+    enriched, skipped = [], []
+
+    for filename in os.listdir(wiki_dir):
+        if not filename.endswith(".json"):
+            continue
+        character_id = filename[:-5]  # strip .json
+        result = enrich_wiki_from_rag(story_uuid, character_id)
+        if result:
+            enriched.append(character_id)
+        else:
+            skipped.append(character_id)
+
+    logger.info(
+        f"RAG batch enrichment complete for story '{story_uuid}': "
+        f"{len(enriched)} enriched, {len(skipped)} skipped."
+    )
+    return {"enriched": enriched, "skipped": skipped}

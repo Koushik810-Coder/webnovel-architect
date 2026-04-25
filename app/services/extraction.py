@@ -136,29 +136,12 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
     
     prompt = f"""
     Analyze the following chapter text and extract these elements:
-    1. 'active_character_names': A list of unique character names present in the text. Normalize titles (e.g., return "Stark" instead of "Lord Stark").
-    2. 'character_genders': A dictionary mapping the names from 'active_character_names' to their predicted gender ("male", "female", "neutral") based on pronouns or explicit context hints.
-    3. 'active_world_terms': A list of unique world-building terms like locations, factions, magical systems, and ranks.
-    4. 'events': A list of significant events occurring in this chapter. Structure these as Dynamic Event Units (DEUs). Each event must have:
-        - 'action_summary': A brief string describing the action, e.g., "Lucian fights the Forest Troll".
-        - 'involved_characters': A list of character names involved.
-        - 'relation_type': The dominant relationship type between involved characters in this event.
-          Choose ONE of: "friendly", "hostile", "combat", "neutral", "mentor", "romantic", "betrayal".
-        - 'intensity': An integer 1-5 representing the narrative weight of this event. YOU MUST USE THIS STRICT RUBRIC:
-          1 = Minor passing mention, shared presence without interaction.
-          2 = Brief casual conversation, background interaction.
-          3 = Significant sustained conversation, joint task, minor argument.
-          4 = Major argument, formal alliance, physical altercation, high emotional stakes.
-          5 = Life-altering event, fatal combat, catastrophic betrayal, world-changing magic use.
-        - 'pre_conditions': A brief description of the state or situation *before* the event.
-        - 'post_conditions': A brief description of the state or situation *after* the event.
-        - 'location': The location where the event takes place (if mentioned, otherwise "Unknown").
-        - 'causes_event_indexes': An array of integers representing the zero-based indices of other events in this list that this specific event directly causes or leads to. Leave empty if none.
     
-    Also count the approximate number of times dialogue occurs (dialogue blocks enclosed in quotes). Return this as an integer 'dialogue_count_total'.
-    
-    Respond STRICTLY with a valid JSON object matching this schema:
+    CRITICAL: YOU MUST Return a valid JSON object strictly matching this schema. Write your thought process in the "_thought_process" field before generating the arrays.
+
+    SCHEMA:
     {{
+        "_thought_process": "Analyze the text for entities and events. Step 1: Filter generic nouns. Step 2: Identify core entities. Step 3: Map events.",
         "active_character_names": ["Name1", "Name2"],
         "character_genders": {{"Name1": "male", "Name2": "female"}},
         "active_world_terms": ["Location1", "Faction1"],
@@ -176,6 +159,23 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
             }}
         ]
     }}
+
+    Rules & Constraints:
+    - HALLUCINATION GUARDRAILS: Do NOT list generic time references ("today", "tomorrow", "this morning", "one day") or vague pronouns as entities or world terms.
+    - Entities must be specific proper nouns.
+    - 'active_character_names': Unique character names. Normalize titles (e.g., return "Stark" instead of "Lord Stark").
+    - 'character_genders': Map names to "male", "female", or "neutral".
+    - 'active_world_terms': Unique world-building terms (locations, factions, magical systems, ranks).
+    - 'events': List of significant events. Must follow strictly the intensity rubric:
+      1=Minor passing mention, 2=Brief casual conversation, 3=Significant sustained conversation/minor argument, 4=Major argument/physical altercation, 5=Life-altering event.
+    - 'relation_type' must be ONE of: "friendly", "hostile", "combat", "neutral", "mentor", "romantic", "betrayal".
+    - 'causes_event_indexes': Array of zero-based integers linking to other events in the list.
+
+    FEW-SHOT EXAMPLES:
+    Example Input Snippet:
+    "Tomorrow, Lord Vael would visit the Upper Realm. 'I must prepare,' he thought."
+    Example '_thought_process':
+    "1. 'Tomorrow' is a time reference, ignore. 2. 'Lord Vael' -> 'Vael'. 3. 'Upper Realm' = world term. 4. Event: Musing preparation. Intensity 1."
     
     Chapter Text:
     {text}
@@ -219,8 +219,3 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
         "raw_entities": {name: 1 for name in active_characters}
     }
 
-def estimate_demographics(text: str, character_name: str) -> Dict[str, str]:
-    """
-    Estimates gender, age, and simple vocal traits from text context.
-    """
-    return {}

@@ -1,12 +1,11 @@
 from app.core.ids import generate_character_id
 from app.core.models.character_wiki import CharacterWiki
 from app.core.models.character_runtime import CharacterRuntime
-
-# Temporary in-memory storage
-CHARACTER_WIKI = {}
-CHARACTER_RUNTIME = {}
+from app.services.ingest import load_runtime, save_runtime
+from app.services.wiki import save_character_wiki
 
 def create_character(
+    story_uuid: str,
     name: str,
     short_description: str,
     first_chapter: int
@@ -27,8 +26,11 @@ def create_character(
         last_seen_chapter=first_chapter
     )
 
-    CHARACTER_WIKI[character_id] = wiki
-    CHARACTER_RUNTIME[character_id] = runtime
+    chapter_count, runtime_db = load_runtime(story_uuid)
+    runtime_db[character_id] = runtime
+    
+    save_character_wiki(story_uuid, wiki)
+    save_runtime(story_uuid, chapter_count, runtime_db)
 
     return {
         "wiki": wiki,

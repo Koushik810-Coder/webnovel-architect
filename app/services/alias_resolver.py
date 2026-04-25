@@ -45,11 +45,13 @@ def resolve_aliases_with_map(names: List[str]) -> Tuple[List[str], Dict[str, str
             canonical_names.add(long_name)
             merged_map[long_name] = long_name
 
-    # Second pass: collapse canonical names that contain a shorter canonical sibling
+    # Second pass: collapse canonical names that contain a shorter canonical sibling.
+    # Sort by length ascending so the shortest form always wins deterministically
+    # (set iteration order is undefined; without sorting the winner varies per run).
     final_names: set = set()
     remap: Dict[str, str] = {}  # old canonical -> new (shorter) canonical
 
-    for name in canonical_names:
+    for name in sorted(canonical_names, key=len):
         shorter_match = None
         for other in canonical_names:
             if len(other) < len(name) and _is_word_substring(other.lower(), name.lower()):

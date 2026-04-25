@@ -27,9 +27,8 @@ class RoyalRoadScraper(BaseScraper):
         }
         
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
+            response = self.fetch_with_retry(url, headers=headers, timeout=15)
+        except ValueError as e:
             raise ValueError(f"API Fallback: Failed to connect to Royal Road to scrape the chapter. The site might be down, rate-limiting your IP, or the URL is invalid. Details: {str(e)}")
         soup = BeautifulSoup(response.text, "html.parser")
         
@@ -73,9 +72,8 @@ class RoyalRoadScraper(BaseScraper):
         }
         
         try:
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
+            response = self.fetch_with_retry(url, headers=headers, timeout=15)
+        except ValueError as e:
             raise ValueError(f"API Fallback: Failed to connect to Royal Road to scrape the fiction index. The site might be down or rate-limiting. Details: {str(e)}")
         soup = BeautifulSoup(response.text, "html.parser")
         chapters = []
@@ -94,3 +92,34 @@ class RoyalRoadScraper(BaseScraper):
                     chapters.append({"title": title, "url": full_url})
                     
         return chapters
+
+    def scrape_metadata(self, url: str) -> Dict[str, Any]:
+        """
+        Scrapes a Royal Road fiction index page for synopsis and cover.
+        """
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        
+        try:
+            response = self.fetch_with_retry(url, headers=headers, timeout=15)
+        except ValueError as e:
+            raise ValueError(f"Failed to fetch metadata from {url}. Details: {str(e)}")
+            
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        synopsis_div = soup.find("div", class_="description")
+        synopsis = synopsis_div.text.strip() if synopsis_div else ""
+        
+        fic_header = soup.find("div", class_="fic-header")
+        cover_img = fic_header.find("img") if fic_header else None
+        cover_url = cover_img.get("src") if cover_img else ""
+        
+        # Handle relative URLs just in case
+        if cover_url and cover_url.startswith("/"):
+            cover_url = f"{self.base_url}{cover_url}"
+            
+        return {
+            "synopsis": synopsis,
+            "cover_url": cover_url
+        }

@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, field_validator
+from typing import List, Optional, Any
 
 class CharacterWiki(BaseModel):
     """
@@ -19,7 +19,7 @@ class CharacterWiki(BaseModel):
     affiliations: List[str] = []
 
     species: Optional[str] = None
-    age: Optional[str] = None
+    age: Optional[str | int] = None
     gender: Optional[str] = None
 
     personality_traits: List[str] = []
@@ -33,3 +33,10 @@ class CharacterWiki(BaseModel):
     last_updated_chapter: int
     confidence: float = 1.0
     voice_id: Optional[str] = None
+
+    @field_validator('age', mode='before')
+    @classmethod
+    def coerce_age_to_str(cls, v: Any) -> Optional[str]:
+        if v is not None:
+            return str(v)
+        return v

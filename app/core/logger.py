@@ -34,7 +34,8 @@ def get_logger(name: str) -> logging.Logger:
     ch.setFormatter(console_formatter)
     
     # Rotating File Handler (DEBUG and above, 10MB limit, 5 backups)
-    log_file_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'webnovel_architect.log')
+    import pathlib
+    log_file_path = str(pathlib.Path(__file__).resolve().parents[2] / "webnovel_architect.log")
     try:
         fh = RotatingFileHandler(
             log_file_path, 

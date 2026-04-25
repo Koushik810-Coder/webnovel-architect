@@ -1,15 +1,55 @@
 {
   "version": 1,
   "skills": {
+    "apify-ultimate-scraper": {
+      "source": "apify/agent-skills",
+      "sourceType": "github",
+      "computedHash": "4cba41db3e691cd6b00beb95990b3c852e2854f0b5a6d77e7b8667db3c64818a"
+    },
     "docx": {
       "source": "anthropics/skills",
       "sourceType": "github",
       "computedHash": "150be87ff7b18f273ad07da303adb1cf2ca21cc3e76db7a2cf0373405178a278"
     },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "computedHash": "9e1c8b3103f92fa8092568a44fe64858de7c5c9dc65ce4bea8f168080e889cfd"
+    },
+    "pretty-mermaid": {
+      "source": "imxv/pretty-mermaid-skills",
+      "sourceType": "github",
+      "computedHash": "8fbeb58625ef4f3d50338ca5c77f62b51e75606acb524cb44a7b1d596277fc41"
+    },
+    "prompt-engineer": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "computedHash": "145fb16bbbdb2a84f09c7946dfe22eef72fe3e968f61e6ae5d63ad8c80be0f82"
+    },
+    "prompt-engineering-patterns": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "53e6cd0e717c68d04004fa367c8d8660d8c3edf206552ead9d69b63ba59c2199"
+    },
     "test-driven-development": {
       "source": "obra/superpowers",
       "sourceType": "github",
       "computedHash": "126f1ebf6ccd414f42544f6e83d8cc5adb089e1108eaffb7c400701e37eecd9f"
+    },
+    "ux-design": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "computedHash": "767fc1c09bca0fdeed1c096846b732cd5b70643001aef17d221a87e0ab146657"
+    },
+    "vitest": {
+      "source": "pproenca/dot-skills",
+      "sourceType": "github",
+      "computedHash": "3cf0493db5554d6053369f3c3131a5a7a34f85d7e98aa1eb42114060fe25cc39"
+    },
+    "webapp-testing": {
+      "source": "vudovn/antigravity-kit",
+      "sourceType": "github",
+      "computedHash": "593f6b960ea90ae44fdafde7ce937d8ead056112286d98a7919a21591748ce8c"
     },
     "word-document-processor": {
       "source": "qodex-ai/ai-agent-skills",

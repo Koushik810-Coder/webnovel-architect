@@ -1,18 +1,16 @@
 from fastapi import HTTPException
-from app.services.characters import CHARACTER_RUNTIME
+from app.services.ingest import load_runtime, save_runtime
 from app.core.graduation import evaluate_graduation, GraduationLevel
-
 from app.services.voice_assignment import assign_voice
 
-
-
-def register_appearance(character_id: str, chapter_id: int, dialogue_lines: int = 0):
-    runtime = CHARACTER_RUNTIME.get(character_id)
+def register_appearance(story_uuid: str, character_id: str, chapter_id: int, dialogue_lines: int = 0):
+    chapter_count, runtime_db = load_runtime(story_uuid)
+    runtime = runtime_db.get(character_id)
 
     if runtime is None:
         raise HTTPException(
             status_code=404,
-            detail="Character not found. Recreate character after server restart."
+            detail="Character not found in this story's runtime database."
         )
 
     # Update appearance data
@@ -26,4 +24,5 @@ def register_appearance(character_id: str, chapter_id: int, dialogue_lines: int 
     if graduation == GraduationLevel.MAIN_CAST and runtime.voice_id is None:
         runtime.voice_id = assign_voice(character_id, runtime.vocal_traits)
 
+    save_runtime(story_uuid, chapter_count, runtime_db)
     return runtime

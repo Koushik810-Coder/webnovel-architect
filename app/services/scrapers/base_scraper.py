@@ -38,6 +38,31 @@ class BaseScraper(ABC):
         """Returns True if this scraper can handle the given index/fiction URL."""
         pass
 
+    def fetch_with_retry(self, url: str, headers: dict = None, timeout: int = 15, max_retries: int = 3):
+        """Helper method to fetch a URL with retry logic for resilience."""
+        import requests
+        import time
+        last_exception = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.get(url, headers=headers, timeout=timeout)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < max_retries:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+        raise ValueError(f"API Fallback: Failed to fetch {url} after {max_retries} attempts. Details: {str(last_exception)}")
+
+    @abstractmethod
+    def scrape_metadata(self, url: str) -> Dict[str, Any]:
+        """
+        Scrapes a fiction index page and returns metadata.
+        Returns:
+            Dict containing 'synopsis' (str) and 'cover_url' (str).
+        """
+        pass
+
     @abstractmethod
     def scrape_index(self, url: str) -> list[Dict[str, str]]:
         """
@@ -46,3 +71,4 @@ class BaseScraper(ABC):
             List of Dicts containing 'title' (str) and 'url' (str).
         """
         pass
+

@@ -22,7 +22,7 @@ from __future__ import annotations
 import csv
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict
 
 # ── Path bootstrap so module imports work when run directly ──────────────────
@@ -73,7 +73,7 @@ def save_mos_rating(
             "naturalness": naturalness,
             "distinctiveness": distinctiveness,
             "fatigue": fatigue,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
 

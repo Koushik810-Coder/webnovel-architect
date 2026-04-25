@@ -40,7 +40,7 @@ from unittest.mock import patch
 from app.services.narration import resolve_dialogue_speakers
 
 class TestResolveDialogueSpeakers:
-    @patch('adapters.llm_adapter.analyze_text_json')
+    @patch('app.services.narration.analyze_text_json')
     def test_resolves_speakers_via_llm_batch(self, mock_analyze, monkeypatch):
         # Setup mock to return the expected JSON format
         mock_analyze.return_value = {
@@ -75,7 +75,7 @@ class TestResolveDialogueSpeakers:
         assert len(resolved_blocks) == 1
         assert getattr(resolved_blocks[0], 'speaker', None) is None  # Narration shouldn't have a speaker field set to a name based on dialogue
 
-    @patch('adapters.llm_adapter.analyze_text_json')
+    @patch('app.services.narration.analyze_text_json')
     def test_handles_missing_keys_in_llm_response(self, mock_analyze):
         # LLM misses index 1
         mock_analyze.return_value = {

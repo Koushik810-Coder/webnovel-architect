@@ -25,9 +25,11 @@ class GraphProvider:
             # Track chronological introduction for bootstrapping
             current_chars = sum(1 for n, d in self.graph.nodes(data=True) if d.get("type") == "character")
             attributes["introduction_order"] = current_chars + 1
+            # Record the debut chapter once — never overwritten on subsequent updates
+            if "last_seen_chapter" in attributes:
+                attributes.setdefault("first_seen_chapter", attributes["last_seen_chapter"])
             
         self.graph.add_node(name, type="character", **attributes)
-        self.save_graph()
 
     def add_event(
         self,
@@ -71,14 +73,12 @@ class GraphProvider:
                     chapter_id=chapter_id,
                     weight=float(intensity),
                 )
-        self.save_graph()
 
     def add_causal_edge(self, source_event_id: str, target_event_id: str, relation_type: str = "causes"):
         """Adds a directed causal edge between two event nodes."""
         if self.graph.has_node(source_event_id) and self.graph.has_node(target_event_id):
             if self.graph.nodes[source_event_id].get("type") == "event" and self.graph.nodes[target_event_id].get("type") == "event":
                 self.graph.add_edge(source_event_id, target_event_id, relation=relation_type)
-                self.save_graph()
 
     def get_character_events(self, name: str) -> list:
         """Returns a chronological list of all events a character participated in."""
@@ -87,14 +87,18 @@ class GraphProvider:
             
         events = []
         for u, v, data in self.graph.out_edges(name, data=True):
-            if data.get("relation") == "participant" and self.graph.has_node(v):
+            # Check the destination node is an event node (not another character).
+            # We do NOT filter by relation label because add_event() stores the
+            # actual relation_type ("hostile", "friendly", etc.) — not a literal
+            # "participant" string — so the old label check silently dropped all
+            # events added with an explicit relation_type.
+            if self.graph.has_node(v) and self.graph.nodes[v].get("type") == "event":
                 event_data = self.graph.nodes[v]
-                if event_data.get("type") == "event":
-                    events.append({
-                        "id": v,
-                        "description": event_data.get("description", ""),
-                        "chapter_id": event_data.get("chapter_id", 0)
-                    })
+                events.append({
+                    "id": v,
+                    "description": event_data.get("description", ""),
+                    "chapter_id": event_data.get("chapter_id", 0)
+                })
                     
         # Sort chronologically by chapter_id
         events.sort(key=lambda x: x["chapter_id"])
@@ -198,11 +202,10 @@ class GraphProvider:
             else:
                 score = base_score
 
-            # Debut Prominence Quotient (DPQ) — algorithmic bootstrapping
-            # If the character is new (first_seen == current_chapter), check whether
-            # they dominate the debut subgraph and warrant a provisional graduation.
-            first_seen = self.graph.nodes[name].get("last_seen_chapter", current_chapter)
-            if first_seen == current_chapter:
+            # Debut Prominence Quotient (DPQ) — algorithmic bootstrapping.
+            # Triggers only in the character's DEBUT chapter, not on every appearance.
+            first_seen_chapter = self.graph.nodes[name].get("first_seen_chapter", current_chapter)
+            if first_seen_chapter == current_chapter:
                 dpq = self.get_debut_prominence(name, debut_chapter_id=current_chapter)
                 # A character dominating >40% of debut chapter interactions is provisionally graduated
                 if dpq >= 0.40:
@@ -241,13 +244,21 @@ class GraphProvider:
 
         # Remove the obsolete alias node
         self.graph.remove_node(source_id)
-        self.save_graph()
 
     def save_graph(self):
-        """Persists graph to JSON (Simple backup)."""
+        """Persists graph to JSON using write-to-temp + rename for atomicity.
+        
+        A direct open(path, 'w') truncates the file before writing, so a
+        mid-write process kill would leave the graph corrupt with no recovery.
+        Writing to a sibling .tmp file and then renaming is atomic on all
+        major OS/filesystems (POSIX rename, Windows ReplaceFile).
+        """
+        import pathlib
+        tmp_path = pathlib.Path(self.save_path).with_suffix(".tmp")
         data = nx.node_link_data(self.graph, edges="edges")
-        with open(self.save_path, "w") as f:
+        with open(tmp_path, "w") as f:
             json.dump(data, f, indent=2)
+        tmp_path.replace(self.save_path)
 
     def load_graph(self):
         """Loads graph from JSON if exists."""

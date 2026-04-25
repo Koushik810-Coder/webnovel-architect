@@ -10,9 +10,8 @@ class GraduationLevel(str, Enum):
     MAIN_CAST = "main_cast" # Permanent fixture. Has a LOCKED voice ID.
 
 # Explicit thresholds adjusted for Weighted PageRank
-DELTA_LOWER = 0.05
-DELTA_UPPER = 0.15
-MAIN_CAST_THRESHOLD = 0.50
+DELTA_UPPER = 0.15       # Below this → EXTRA (no voice)
+MAIN_CAST_THRESHOLD = 0.50  # Above this → MAIN_CAST (locked voice)
 
 def evaluate_graduation(confidence_score: float) -> GraduationLevel:
     if confidence_score < DELTA_UPPER:
@@ -42,8 +41,10 @@ def check_graduation_status(character: CharacterRuntime, wiki_traits: Optional[D
         character.voice_id = assign_voice(character.character_id, merged_traits)
         return True
         
-    elif new_level != GraduationLevel.MAIN_CAST and character.voice_id is not None:
-        # PROVISIONAL DE-GRADUATION (Decay below DELTA_UPPER after DPQ bootstrap)
+    elif new_level == GraduationLevel.EXTRA and character.voice_id is not None:
+        # PROVISIONAL DE-GRADUATION — only when score drops all the way back to EXTRA.
+        # EVOLVING characters (score between DELTA_UPPER and MAIN_CAST_THRESHOLD) keep
+        # their voice; only a full decay below DELTA_UPPER triggers release.
         get_registry().release_voice(character.voice_id)
         character.voice_id = None
         return True

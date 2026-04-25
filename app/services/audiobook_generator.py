@@ -6,15 +6,34 @@ import subprocess
 import re
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime, normalize_id
+from app.services.wiki import get_character_wiki_content, parse_character_wiki
 from adapters.llm_adapter import analyze_text_json
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)
 
-# Module-level storage to maintain voice assignment consistency across multiple chapter generation calls
-_voice_assignments_session: dict = {}
-_male_idx_session = [0]
-_female_idx_session = [0]
+# Sentinel file for audio generation cancellation (written by UI to stop synthesis).
+_CANCEL_AUDIO_FLAG = "cancel_audio.flag"
+
+
+async def _synthesize_edge_tts(t: str, v: str, p: str, p_vtt: str) -> None:
+    """Streams EdgeTTS audio and writes audio + VTT subtitle file to disk."""
+    import edge_tts
+    from edge_tts.submaker import SubMaker
+
+    async def _do_stream():
+        comm = edge_tts.Communicate(t, v)
+        submaker = SubMaker()
+        with open(p, "wb") as file:
+            async for chunk in comm.stream():
+                if chunk["type"] == "audio":
+                    file.write(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    submaker.feed(chunk)
+        with open(p_vtt, "w", encoding="utf-8") as file:
+            file.write(submaker.get_srt().replace(',', '.'))
+
+    await asyncio.wait_for(_do_stream(), timeout=60)
 
 def _run_async(coro):
     """
@@ -45,7 +64,7 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "edge"):
+def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "edge", force_refresh: bool = False):
     """
     Generates a full-chapter MP3 audiobook.
     
@@ -64,6 +83,12 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
             files if successful, otherwise None.
     """
 
+    # Local voice assignments scoped to this specific audiobook generation run
+    # to prevent cross-story voice contamination. 
+    _voice_assignments_session: dict = {}
+    _male_idx_session = [0]
+    _female_idx_session = [0]
+
     # ── 1. Load Chapter Text ──────────────────────────────────────────────
     chapter_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(chapter_id))
     text_path = os.path.join(chapter_dir, "text.txt")
@@ -75,7 +100,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
 
     # ── 2. Extract Script via Deterministic Parsing + LLM ───────────────────
     script_path = os.path.join(chapter_dir, "cached_script.json")
-    if os.path.exists(script_path):
+    if os.path.exists(script_path) and not force_refresh:
         logger.info(f"Loading cached script from {script_path}")
         with open(script_path, "r", encoding="utf-8") as f:
             script = json.load(f)
@@ -137,7 +162,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         FEMALE_VOICES = ["af_bella", "af_nicole", "af_sarah", "bf_emma"]
     else:
         NARRATOR_VOICE = "en-US-GuyNeural"
-        MALE_VOICES = ["en-US-DavisNeural", "en-US-TonyNeural", "en-GB-RyanNeural"]
+        MALE_VOICES = ["en-US-AndrewNeural", "en-US-BrianNeural", "en-GB-RyanNeural"]
         FEMALE_VOICES = ["en-US-AriaNeural", "en-US-JennyNeural", "en-GB-SoniaNeural"]
 
     def _get_voice_for_speaker(speaker: str) -> str:
@@ -158,7 +183,6 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
 
         # Determine gender from wiki
         gender = "neutral"
-        from app.services.wiki import get_character_wiki_content, parse_character_wiki
         wiki_content = get_character_wiki_content(story_uuid, char_id)
         if wiki_content:
             parsed = parse_character_wiki(wiki_content)
@@ -181,15 +205,8 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
 
     chunk_files = []
     
-    # We will accumulate subtitle objects here. Each chunk will have its own subtitles starting from 0,
-    # so we'll need to offset them by the duration of previous chunks.
-    # We'll use pydub to easily measure audio durations if available, 
-    # but to keep it simple, EdgeTTS SubMaker outputs literal time strings, we can just save a separate VTT per chunk
-    # and concat them mathematically, or since ffconcat supports metadata merging, we might just write a parser for the timestamps.
-    # Actually, the easiest and robust way without extra deps (like pydub) is to just generate the VTT blocks, 
-    # and calculate lengths via ffmpeg later, or just use the submaker directly on the final stiched text (which doesn't work well due to voice swapping).
-    # Since we use `ffmpeg concat`, it's actually complicated to merge VTTs without reading the audio length.
-    # Let's use a simpler heuristic: we will write individual `.vtt` files for each chunk, and use a python script to merge them by reading their lengths via ffprobe.
+    # Per-chunk VTT files are generated and collected in order. After synthesis,
+    # timestamps are offset by cumulative ffprobe duration and merged into one VTT.
     
 
     def get_audio_duration(file_path):
@@ -236,13 +253,17 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     chunk_vtts = []
 
     for i, segment in enumerate(script):
-        if os.path.exists("cancel_audio.flag"):
+        if os.path.exists(_CANCEL_AUDIO_FLAG):
             logger.info("Cancellation requested.")
             return None
             
         speaker = segment.get("speaker", "Narrator")
         text = segment.get("text", "").strip()
-        if not text:
+        
+        # Strip unpronounceable characters before deciding if empty
+        stripped_text = re.sub(r'[^\w\s]', '', text).strip()
+        if not stripped_text:
+            logger.info(f"Skipping chunk {i+1} as text contains no speakable characters after sanitization.")
             continue
 
         voice = _get_voice_for_speaker(speaker)
@@ -252,19 +273,6 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
 
         logger.debug(f"[{i+1}/{len(script)}] {speaker} ({voice}): {text[:40]}...")
         
-        async def _synthesize_edge_tts(t, v, p, p_vtt):
-            import edge_tts
-            from edge_tts.submaker import SubMaker
-            comm = edge_tts.Communicate(t, v)
-            submaker = SubMaker()
-            with open(p, "wb") as file:
-                async for chunk in comm.stream():
-                    if chunk["type"] == "audio":
-                        file.write(chunk["data"])
-                    elif chunk["type"] == "WordBoundary":
-                        submaker.feed(chunk)
-            with open(p_vtt, "w", encoding="utf-8") as file:
-                file.write(submaker.get_srt().replace(',', '.'))
 
         def _synthesize_kokoro(t, v, p, p_vtt):
             tts_engine_obj.generate_audio(t, v, p)
@@ -298,7 +306,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
                     log_path = os.path.join(output_dir, "tts_debug_errors.log")
                     with open(log_path, "a") as dbg_log:
                         dbg_log.write(f"Chunk {i} failed after {max_retries} attempts: {e}\n")
-                    raise RuntimeError(f"Audio generation failed for chunk {i+1} after {max_retries} attempts. Engine error: {e}")
+                    logger.warning(f"Audio generation skipped for chunk {i+1} after {max_retries} attempts due to engine error: {e}")
                 else:
                     time.sleep(2 * (attempt + 1))
         

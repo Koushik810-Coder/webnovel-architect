@@ -8,6 +8,7 @@ def with_retry(max_retries: int = 3, telemetry_path: str = "telemetry.jsonl", st
     Retry decorator specifically for ExternalServiceErrors.
     If the function continues to fail after exhausted retries, 
     it writes structured telemetry to a JSONL file before re-raising.
+    Uses exponential backoff between attempts to avoid hammering the remote service.
     """
     def decorator(func):
         @functools.wraps(func)
@@ -30,6 +31,8 @@ def with_retry(max_retries: int = 3, telemetry_path: str = "telemetry.jsonl", st
                             f.write(json.dumps(telemetry_data) + "\n")
                         raise
                     attempts += 1
+                    backoff = 2 ** attempts  # 2s, 4s, 8s ...
+                    time.sleep(backoff)
             raise RuntimeError("Unreachable loop")
         return wrapper
     return decorator

@@ -1,13 +1,18 @@
 import json
 import os
+import hashlib
+import pathlib
 import random
 from typing import Dict, List, Set, Optional
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)
 
-VOICES_JSON_PATH = "models/voices.json"
-VOICE_STATE_PATH = "output/voice_allocations.json" # To persist allocations across runs (optional but good)
+# Paths are anchored to the project root derived from this file's location
+# so the registry works regardless of the process CWD.
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
+VOICES_JSON_PATH = str(_PROJECT_ROOT / "models" / "voices.json")
+VOICE_STATE_PATH = str(_PROJECT_ROOT / "output" / "voice_allocations.json")
 
 class VoiceRegistry:
     def __init__(self, voices_path: str = VOICES_JSON_PATH):
@@ -94,7 +99,6 @@ class VoiceRegistry:
             return "en-US-GuyNeural" # Absolute fallback
             
         # Deterministic pseudo-random selection based on character_id
-        import hashlib
         hash_val = int(hashlib.md5(character_id.encode('utf-8')).hexdigest(), 16)
         
         # Sort available first to ensure determinism across different runs if same set is available

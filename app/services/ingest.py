@@ -1,6 +1,7 @@
 import os
 import json
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Dict, Tuple, List, Optional, Callable
 
 from app.core.models.chapter import Chapter
@@ -17,8 +18,14 @@ from app.services.wiki import (
 from app.core.graduation import check_graduation_status
 from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
+from adapters.graph_adapter import get_graph_engine
+from app.services.alias_resolver import resolve_aliases_with_map
 
 logger = get_logger(__name__)
+
+# Sentinel file written by the UI to cancel a running batch ingestion.
+# Placed in the process CWD (project root) for simplicity.
+_CANCEL_FLAG = "cancel_ingestion.flag"
 
 def normalize_id(name: str) -> str:
     """
@@ -154,7 +161,6 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # Extraction succeeded — now it is safe to advance the counter and persist.
     chapter_counter += 1
 
-    from datetime import timezone
     chapter = Chapter(
         id=chapter_counter,
         title=title,
@@ -165,18 +171,20 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # Save chapter to disk
     save_chapter(story_uuid, chapter)
     
-    # Extract character relationships, events, and demographic data
-    intelligence = extract_chapter_intelligence(text, extractor=extractor)
     active_names = intelligence.get("active_character_names", [])
     events = intelligence.get("events", [])
-    
+
+    # Pre-build an index of character name -> events for O(1) lookup per character
+    # (avoids an O(characters × events × involved_per_event) inner loop later).
+    _char_event_index: Dict[str, list] = defaultdict(list)
+    for _evt in events:
+        for _ic in _evt.get("involved_characters", []):
+            _char_event_index[_ic.lower()].append(_evt)
+
     # 2.5 Resolve Aliases against existing graph characters to prevent cross-chapter duplicates
-    from adapters.graph_adapter import get_graph_engine
     graph = get_graph_engine(story_uuid)
-    
+
     existing_char_names = [data.get("display_name", str(node)) for node, data in graph.graph.nodes(data=True) if data.get("type") == "character"]
-    from app.services.alias_resolver import resolve_aliases_with_map
-    
     all_names = list(set(active_names + existing_char_names))
     _, full_alias_map = resolve_aliases_with_map(all_names)
     
@@ -202,7 +210,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     for name in active_names:
         char_id = normalize_id(name)
         graph.add_character(char_id, {"display_name": name, "last_seen_chapter": chapter_counter})
-            # Create an event to represent the occurrences in this chapter
+    # Create events to represent character interactions this chapter
     if events:
         # First pass: Create all events and store their generated IDs
         event_ids: list[str] = []
@@ -287,8 +295,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 mention_count=1
             )
 
-            # Build event block for this character
-            char_events_new = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
+            # Build event block for this character — O(1) via pre-built index
+            char_events_new = _char_event_index[name.lower()]
             event_text_block_new = "\n".join([f"- {e.get('action_summary')}" for e in char_events_new])
 
             # LLM enrichment even on first appearance (if they have events)
@@ -339,8 +347,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             char.mention_count += 1
             char.confidence_score = new_score
 
-            # Find what happened to them this chapter
-            char_events_this_chapter = [e for e in events if name.lower() in [i.lower() for i in e.get("involved_characters", [])]]
+            # Find what happened to them this chapter — O(1) via pre-built index
+            char_events_this_chapter = _char_event_index[name.lower()]
             event_text_block = "\n".join([f"- {e.get('action_summary')}" for e in char_events_this_chapter])
 
             # Load existing wiki from JSON sidecar (auto-migrates .md if needed)
@@ -413,8 +421,17 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Did they fall out of provisional MAIN_CAST status?
             if check_graduation_status(char):
                 logger.info(f"Character {char_id} score decayed. Voice lock released.")
+                # Sync voice_id=None to the on-disk wiki sidecar so disk and
+                # runtime stay consistent (the sidecar still had the old voice_id).
+                decayed_wiki = load_character_wiki_json(story_uuid, char_id)
+                if decayed_wiki and decayed_wiki.voice_id is not None:
+                    updated_wiki = decayed_wiki.model_copy(
+                        update={"voice_id": None, "confidence": char.confidence_score}
+                    )
+                    save_character_wiki(story_uuid, updated_wiki)
 
     # Atomically save all changes to disk
+    graph.save_graph()
     save_runtime(story_uuid, chapter_counter, runtime_db)
     logger.info(f"Chapter {chapter_counter} ({title}) fully ingested and state persisted.")
     return chapter
@@ -439,8 +456,12 @@ def ingest_multiple_chapters(
     ingested_chapters = []
     total = len(chapters)
     
+    if os.path.exists(_CANCEL_FLAG):
+        os.remove(_CANCEL_FLAG)
+        logger.info("Cleared old cancel_ingestion.flag")
+    
     for i, chap_data in enumerate(chapters):
-        if os.path.exists("cancel_ingestion.flag"):
+        if os.path.exists(_CANCEL_FLAG):
             logger.info("Batch ingestion cancelled by user.")
             break
             
@@ -475,7 +496,7 @@ def ingest_multiple_chapters(
             # user-triggered batch will start from this chapter automatically.
             err_msg = str(e)
             logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {err_msg}")
-            with open("cancel_ingestion.flag", "w") as f:
+            with open(_CANCEL_FLAG, "w") as f:
                 f.write(f"error: {err_msg}")
             break
         

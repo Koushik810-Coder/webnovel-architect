@@ -125,12 +125,96 @@ Reason through the context chronologically and then provide a clear, narrative a
 """
 
     # 5. LLM Generation
+    # analyze_text() handles its own Groq fallback internally — no need to repeat it here.
     response = analyze_text(prompt, model=model)
-    
-    # Primary model fallback to Groq to prevent RAG downtime
-    if (response is None or response.startswith("API Fallback:")) and not model.startswith("groq"):
-        logger.warning(f"Primary model {model} failed. Falling back to Groq as a safeguard...")
-        fallback_model = "groq/llama-3.1-8b-instant"
-        response = analyze_text(prompt, model=fallback_model)
-        
     return response
+
+
+def query_character_profile(story_uuid: str, character_id: str, character_name: str, model: str = None) -> dict:
+    """
+    RAG-powered character profile enrichment using Time-CoT.
+
+    Retrieves ALL events this character participated in across every ingested
+    chapter, reasons through them chronologically, and returns a structured
+    dict of wiki fields (same schema as update_character_profile).
+
+    This produces far richer profiles than the chapter-by-chapter extractor
+    because it reasons over the full story arc in a single pass.
+    """
+    if model is None:
+        model = get_llm_model()
+
+    from adapters.llm_adapter import analyze_text_json
+
+    graph = get_graph_engine(story_uuid)
+
+    # --- Retrieve every event this character participated in ---
+    retrieved_events = []
+    seen_events = set()
+
+    if graph.graph.has_node(character_id):
+        for _, event_id, _ in graph.graph.out_edges(character_id, data=True):
+            node_data = graph.graph.nodes.get(event_id, {})
+            if event_id not in seen_events and node_data.get("type") == "event":
+                seen_events.add(event_id)
+                involved = [
+                    k for k, _ in graph.graph.in_edges(event_id)
+                    if graph.graph.nodes[k].get("type") == "character"
+                ]
+                retrieved_events.append({
+                    "chapter_id": node_data.get("chapter_id", 0),
+                    "description": node_data.get("description", ""),
+                    "pre_conditions": node_data.get("pre_conditions", ""),
+                    "post_conditions": node_data.get("post_conditions", ""),
+                    "location": node_data.get("location", "Unknown"),
+                    "participants": [p.replace("_", " ").title() for p in involved],
+                })
+
+    if not retrieved_events:
+        logger.warning(f"No events found in graph for character '{character_id}' — skipping RAG enrichment.")
+        return {}
+
+    # --- Time-CoT ordering ---
+    retrieved_events.sort(key=lambda x: x["chapter_id"])
+
+    timeline_str = f"Full Story Timeline for {character_name} (Chronological):\n"
+    for ev in retrieved_events:
+        timeline_str += f"""
+--- Chapter {ev['chapter_id']} | Location: {ev['location']} ---
+Participants: {', '.join(ev['participants'])}
+Before: {ev['pre_conditions']}
+Action: {ev['description']}
+After: {ev['post_conditions']}
+"""
+
+    prompt = f"""
+You are the loremaster of a serialized web novel. Your task is to build a complete, accurate wiki profile for the character '{character_name}' by reasoning through every event they have been involved in, from their first appearance to their most recent.
+
+{timeline_str}
+
+Based on ALL of the above events, produce a comprehensive character profile as a JSON object. Infer details from context — do NOT use placeholders like "Unknown".
+
+Respond ONLY with a valid JSON object matching this exact schema:
+{{
+    "short_description": "A single punchy sentence (≤20 words) describing who this character IS.",
+    "synopsis": "A cohesive, chronological narrative biography covering their full story arc so far.",
+    "status": "Alive, Deceased, Missing, or null.",
+    "age": "Their stated or inferred age as a string — or null.",
+    "gender": "Their gender — or null.",
+    "species": "Their race or species — or null.",
+    "role": "Protagonist, Antagonist, Supporting, Mentor, etc. — or null.",
+    "affiliations": ["Faction A", "Group B"],
+    "appearance": "A cohesive physical description inferred from context.",
+    "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
+    "notable_quirks": ["Quirk 1", "Quirk 2"]
+}}
+"""
+
+    try:
+        profile = analyze_text_json(prompt, model=model)
+        if profile:
+            logger.info(f"RAG enrichment produced profile for '{character_name}' from {len(retrieved_events)} events.")
+        return profile or {}
+    except Exception as e:
+        logger.error(f"RAG enrichment failed for '{character_name}': {e}")
+        return {}

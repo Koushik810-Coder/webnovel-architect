@@ -28,8 +28,9 @@ stucture.txt
 Documents/commits*.txt
 Documents/slides.txt
 
-# Large Models
+# Large Models & Binaries
 models/
+lib/
 *.onnx
 *.bin
 *.npy
@@ -94,6 +95,12 @@ Documents/*.txt
 Documents/Archive/
 Documents/Research/
 Documents/Review/
+Documents/Assets/
+
+# Root-level moved documents (gitignored in new location too)
+paper.txt
+review.txt
+GETTING_STARTED.md
 
 # DOCX unpack scratch directories (tool artifacts)
 unpacked_doc/
@@ -101,6 +108,7 @@ unpacked_doc2/
 unpacked_doc3/
 unpacked_modified/
 unpacked_sync/
+Documents/docx_extracted/
 
 # DOCX extraction scratch files
 docx_content.txt

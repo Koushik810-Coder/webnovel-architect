@@ -123,18 +123,20 @@ def test_rag_empty_graph_returns_safe_message(tmp_path, monkeypatch, story_uuid)
 
 # ── LLM Fallback ──────────────────────────────────────────────────────────────
 
-def test_rag_falls_back_to_groq_when_primary_fails(populated_graph, story_uuid):
+def test_rag_delegates_fallback_to_adapter(populated_graph, story_uuid):
     """
-    If the primary LLM returns an API Fallback message, query_story must
-    automatically retry with the Groq fallback model.
+    query_story makes exactly one call to analyze_text and delegates fallback
+    handling to the adapter's built-in retry logic.
+
+    The explicit double-call fallback that used to live in rag.py was removed
+    because analyze_text already handles primary→Groq fallback internally,
+    so duplicating it caused the fallback to fire twice on failure.
     """
     call_log = []
 
     def mock_analyze(prompt, model=None):
         call_log.append(model)
-        if model and not model.startswith("groq"):
-            return "API Fallback: Connection error."
-        return "Groq fallback answer."
+        return "Mocked answer."
 
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
         with patch("app.services.rag.analyze_text", side_effect=mock_analyze):
@@ -142,9 +144,11 @@ def test_rag_falls_back_to_groq_when_primary_fails(populated_graph, story_uuid):
                 from app.services.rag import query_story
                 result = query_story(story_uuid, "What did Zorian do?")
 
-    assert len(call_log) == 2, f"Expected 2 LLM calls (primary + fallback), got: {call_log}"
-    assert any("groq" in (m or "") for m in call_log), "Groq fallback was never called"
-    assert result == "Groq fallback answer."
+    assert len(call_log) == 1, (
+        f"rag.py should make exactly 1 call to analyze_text (adapter handles fallback internally), "
+        f"got: {call_log}"
+    )
+    assert result == "Mocked answer."
 
 
 # ── TTS Factory ───────────────────────────────────────────────────────────────

@@ -38,17 +38,33 @@ This repository contains the Proof-of-Concept for a Neuro-Symbolic Dynamic Graph
     python -m spacy download en_core_web_sm
     ```
 
-### Quick Verification
-To launch the interactive Streamlit User Interface:
+### Quick Start: Interactive UIs
+
+#### 1. Professional Suite (Streamlit)
+Ideal for developers and researchers to monitor the Knowledge Graph and debug extraction.
 ```bash
 streamlit run app_ui.py
 ```
 
-Run the verification script to test the entire pipeline (Ingestion -> Extraction -> Graph -> Graduation -> TTS):
+#### 2. End-User Experience (FastAPI + React)
+The polished interface for reading and listening.
 
+**Step A: Start Backend**
 ```bash
-python verify_modular.py
+uvicorn app.main:app --reload
 ```
+
+**Step B: Start Frontend**
+```bash
+cd web-ui
+npm run dev
+```
+
+### Usage Guide
+1. **Import a Novel**: Open the React UI (usually `localhost:5173`) and paste a RoyalRoad Fiction URL in the "Add New Novel" box.
+2. **Background Ingestion**: The system will automatically scrape and begin extracting the first few chapters.
+3. **Listen**: Select the novel in your Library, choose a chapter, and click "Play". The system will generate high-quality audio segments and sync them with captions in real-time.
+4. **Research Tools**: Use the Streamlit dashboard (`app_ui.py`) to inspect the character relationship graph and graduation metrics.
 
 ## Architecture
 

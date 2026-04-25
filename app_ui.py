@@ -40,6 +40,7 @@ from app.services.extraction import extract_chapter_intelligence, extract_chapte
 from adapters.graph_adapter import GraphProvider, _graph_instances
 from adapters.tts_adapter import get_tts_engine
 from app.services.voice_assignment import assign_voice
+from app.core.graduation import MAIN_CAST_THRESHOLD
 
 from app.core.logger import get_logger
 
@@ -163,8 +164,8 @@ if page == "Dashboard":
     col1, col2, col3 = st.columns(3)
     col1.metric("Processed Chapters", chapter_counter)
     col2.metric("Discovered Characters", len(runtime_db))
-    # Count graduation properly based on threshold, not just voice_id
-    graduated_count = len([c for c in list(runtime_db.values()) if c.confidence_score >= 0.75 or c.voice_id is not None])
+    # Count graduation using the actual MAIN_CAST_THRESHOLD from graduation.py
+    graduated_count = len([c for c in list(runtime_db.values()) if c.confidence_score >= MAIN_CAST_THRESHOLD or c.voice_id is not None])
     col3.metric("Graduated Characters", graduated_count)
     
     st.subheader("System Configuration")
@@ -574,7 +575,7 @@ elif page == "Audio Hub":
     st.divider()
     st.subheader("🎙️ Character Voice Testing")
     
-    graduated_chars = [c for c in runtime_db.values() if c.confidence_score >= 0.75 or c.voice_id is not None]
+    graduated_chars = [c for c in runtime_db.values() if c.confidence_score >= MAIN_CAST_THRESHOLD or c.voice_id is not None]
     
     if not graduated_chars:
         st.info("No characters have graduated to the Main Cast yet. Process more chapters to trigger graduation!")

@@ -13,8 +13,16 @@ class PipelineState(enum.Enum):
 
 class ChapterPipeline:
     """
-    A strict state machine defining the sequence of data resolving blocks during ingestion and audio generation.
-    Enforces that steps (alias resolution, gender mapping, voice assignment) happen sequentially.
+    A strict state machine defining the sequence of data resolving blocks during ingestion
+    and audio generation. Enforces that steps (alias resolution, gender mapping, voice
+    assignment) happen sequentially.
+
+    NOTE: This class is a structural scaffold and is **not currently wired into the
+    production ingestion pipeline** (which handles these steps inline in ingest.py).
+    It exists as a tested abstraction intended for a future refactor that centralises
+    pipeline step ordering. See tests/test_pipeline_ordering.py.
+
+    TODO: Wire into ingest.py once the step implementations are extracted here.
     """
     def __init__(self, chapter_id: int, intelligence: Dict[str, Any]):
         self.chapter_id = chapter_id

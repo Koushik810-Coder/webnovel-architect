@@ -65,7 +65,8 @@ class StoryManager:
                     try:
                         with open(meta_path, "r") as f:
                             stories.append(json.load(f))
-                    except json.JSONDecodeError:
+                    except Exception:
+                        # Corrupt JSON, permission error, etc. — skip this entry
                         continue
                         
         # Sort by updated_at descending

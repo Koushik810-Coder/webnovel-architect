@@ -284,23 +284,23 @@ webnovel-architect/
 
 ### 5.1 Component Summary
 
-| Layer | Component | Technology | Status |
-|---|---|---|---|
-| **UI** | Streamlit Dashboard | `streamlit`, `pyvis` | ✅ Implemented |
-| **Neural Extraction** | LLM Adapter | `litellm` (Groq Llama-3.1-8b primary, Gemini Flash fallback) | ✅ Implemented |
-| **NLP Fallback** | spaCy NER | `spaCy en_core_web_sm` + `EntityRuler` | ✅ Implemented |
-| **Scraping** | Web Fiction Fetchers | Royal Road Scraper, EPUB Parser | ✅ Implemented |
-| **Alias Resolution** | Entity Normalization | Custom `AliasResolver` module | ✅ Implemented |
-| **Symbolic Runtime** | Dynamic Event Graph | `networkx` DiGraph + JSON persistence | ✅ Implemented |
-| **Reasoning** | Character Graduation | Weighted PageRank (α=0.85) + Temporal Decay | ✅ Implemented |
-| **TTS (Main Cast)** | High-Quality Audio | Kokoro ONNX 82M (CPU) | ✅ Implemented |
-| **TTS (Background)** | Fallback Audio | Microsoft Edge-TTS (async cloud) | ✅ Implemented |
-| **Audiobook Gen** | Script Caching + Stitching | `audiobook_generator.py` + `cached_script.json` | ✅ Implemented |
-| **Subtitles** | Synchronized VTT | WebVTT generation with timestamp offsets | ✅ Implemented |
-| **Knowledge Output** | Wiki Generation | Markdown profile generator | ✅ Implemented |
-| **Story Q&A** | DyG-RAG Temporal Q&A | Time-CoT chronological event traversal | ✅ Implemented |
-| **Code Quality** | Static Analysis | `mypy` (strict typing) + `ruff` (linting) | ✅ Enforced |
-| **Testing** | Test Suite | `pytest` (TDD, full coverage) | ✅ Passing |
+| Layer                 | Component                  | Technology                                                   | Status        |
+| --------------------- | -------------------------- | ------------------------------------------------------------ | ------------- |
+| **UI**                | Streamlit Dashboard        | `streamlit`, `pyvis`                                         | ✅ Implemented |
+| **Neural Extraction** | LLM Adapter                | `litellm` (Groq Llama-3.1-8b primary, Gemini Flash fallback) | ✅ Implemented |
+| **NLP Fallback**      | spaCy NER                  | `spaCy en_core_web_sm` + `EntityRuler`                       | ✅ Implemented |
+| **Scraping**          | Web Fiction Fetchers       | Royal Road Scraper, EPUB Parser                              | ✅ Implemented |
+| **Alias Resolution**  | Entity Normalization       | Custom `AliasResolver` module                                | ✅ Implemented |
+| **Symbolic Runtime**  | Dynamic Event Graph        | `networkx` DiGraph + JSON persistence                        | ✅ Implemented |
+| **Reasoning**         | Character Graduation       | Weighted PageRank (α=0.85) + Temporal Decay                  | ✅ Implemented |
+| **TTS (Main Cast)**   | High-Quality Audio         | Kokoro ONNX 82M (CPU)                                        | ✅ Implemented |
+| **TTS (Background)**  | Fallback Audio             | Microsoft Edge-TTS (async cloud)                             | ✅ Implemented |
+| **Audiobook Gen**     | Script Caching + Stitching | `audiobook_generator.py` + `cached_script.json`              | ✅ Implemented |
+| **Subtitles**         | Synchronized VTT           | WebVTT generation with timestamp offsets                     | ✅ Implemented |
+| **Knowledge Output**  | Wiki Generation            | Markdown profile generator                                   | ✅ Implemented |
+| **Story Q&A**         | DyG-RAG Temporal Q&A       | Time-CoT chronological event traversal                       | ✅ Implemented |
+| **Code Quality**      | Static Analysis            | `mypy` (strict typing) + `ruff` (linting)                    | ✅ Enforced    |
+| **Testing**           | Test Suite                 | `pytest` (TDD, full coverage)                                | ✅ Passing     |
 
 ### 5.2 Deployment Tier Strategy
 
