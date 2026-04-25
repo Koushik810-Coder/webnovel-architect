@@ -90,10 +90,10 @@ def _run_with_retry(
                 f"LLM Error [{target_model}] Attempt {attempt}/{max_attempts}: {type(e).__name__}: {e}"
             )
             if attempt < max_attempts:
-                if "RateLimitError" in type(e).__name__ or "429" in str(e):
+                if any(x in type(e).__name__ for x in ["RateLimitError", "ServiceUnavailableError"]) or any(x in str(e) for x in ["429", "503", "queue full"]):
                     if attempt % num_keys == 0:
                         wait_time = 25
-                        logger.warning(f"All keys exhausted. Waiting {wait_time}s before next cycle...")
+                        logger.warning(f"All keys exhausted or service overloaded. Waiting {wait_time}s before next cycle...")
                         time.sleep(wait_time)
                     else:
                         time.sleep(1)
@@ -103,22 +103,26 @@ def _run_with_retry(
     return False, last_err
 
 
-def analyze_text(text: str, model: str = None) -> str:
+def analyze_text(text: str, model: str = None, temperature: float = 0.1) -> str:
     """
     Analyzes text using the specified LLM model via LiteLLM.
+    Uses a low temperature (default 0.1) for consistent prose generation.
     """
     if not model:
         model = get_llm_model()
     messages = [{"role": "user", "content": text}]
+    extra_kwargs = {"temperature": temperature}
 
-    success, result = _run_with_retry(model, messages)
+    success, result = _run_with_retry(model, messages, extra_kwargs=extra_kwargs)
     if success:
         return result
 
-    fallback_model = "groq/llama-3.1-8b-instant"
+    # D3 FIX: Read fallback from config.yaml instead of hardcoding.
+    from app.core.config import get_config
+    fallback_model = get_config().get("fallback_llm", "groq/llama-3.1-8b-instant")
     if not model.startswith("groq"):
-        logger.warning(f"Primary model {model} failed. Falling back to Groq ({fallback_model}) as a safeguard...")
-        success, result = _run_with_retry(fallback_model, messages, max_attempts=2)
+        logger.warning(f"Primary model {model} failed. Falling back to {fallback_model} as a safeguard...")
+        success, result = _run_with_retry(fallback_model, messages, max_attempts=2, extra_kwargs=extra_kwargs)
         if success:
             return result
 
@@ -127,9 +131,11 @@ def analyze_text(text: str, model: str = None) -> str:
     return error_msg
 
 
-def analyze_text_json(text: str, model: str = None) -> dict:
+def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) -> dict:
     """
     Analyzes text using the specified LLM model and expects a JSON response.
+    Uses temperature=0 by default for fully deterministic, reproducible outputs.
+    The same input will always produce the same structured extraction result.
     """
     if not model:
         model = get_llm_model()
@@ -142,7 +148,7 @@ def analyze_text_json(text: str, model: str = None) -> dict:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": text},
     ]
-    extra_kwargs = {"response_format": {"type": "json_object"}}
+    extra_kwargs = {"response_format": {"type": "json_object"}, "temperature": temperature}
 
     success, result = _run_with_retry(
         model, messages, extra_kwargs=extra_kwargs, content_transform=_parse_json
@@ -150,10 +156,12 @@ def analyze_text_json(text: str, model: str = None) -> dict:
     if success:
         return result
 
-    fallback_model = "groq/llama-3.1-8b-instant"
+    # D3 FIX: Read fallback from config.yaml instead of hardcoding.
+    from app.core.config import get_config
+    fallback_model = get_config().get("fallback_llm", "groq/llama-3.1-8b-instant")
     if not model.startswith("groq"):
         logger.warning(
-            f"Primary model {model} failed. Falling back to Groq ({fallback_model}) for JSON as a safeguard..."
+            f"Primary model {model} failed. Falling back to {fallback_model} for JSON as a safeguard..."
         )
         success, result = _run_with_retry(
             fallback_model, messages, max_attempts=2,

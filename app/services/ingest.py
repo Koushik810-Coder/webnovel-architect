@@ -12,6 +12,7 @@ from app.services.wiki import (
     save_character_wiki,
     load_character_wiki_json,
     update_character_profile,
+    batch_update_character_profiles,
     get_character_wiki_content,
     apply_profile_updates,
 )
@@ -174,13 +175,6 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     active_names = intelligence.get("active_character_names", [])
     events = intelligence.get("events", [])
 
-    # Pre-build an index of character name -> events for O(1) lookup per character
-    # (avoids an O(characters × events × involved_per_event) inner loop later).
-    _char_event_index: Dict[str, list] = defaultdict(list)
-    for _evt in events:
-        for _ic in _evt.get("involved_characters", []):
-            _char_event_index[_ic.lower()].append(_evt)
-
     # 2.5 Resolve Aliases against existing graph characters to prevent cross-chapter duplicates
     graph = get_graph_engine(story_uuid)
 
@@ -195,6 +189,15 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # We only care about the mapping subset that affects THIS chapter's characters
     alias_map = {k: v for k, v in full_alias_map.items() if k in original_active_names or v in original_active_names}
     
+    # A1 FIX: Build _char_event_index AFTER alias resolution, keyed on canonical char_id.
+    # The old pre-alias index was keyed on raw LLM names; after alias collapsing the
+    # lookup keys didn't match, silently returning empty event lists for every character.
+    _char_event_index: Dict[str, list] = defaultdict(list)
+    for _evt in events:
+        for _ic in _evt.get("involved_characters", []):
+            _canon_id = normalize_id(full_alias_map.get(_ic, _ic))
+            _char_event_index[_canon_id].append(_evt)
+
     # 2.6 Propagate Gender Predictions to Canonical Names
     raw_genders = intelligence.get("character_genders", {})
     predicted_genders = {}
@@ -206,10 +209,17 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     logger.info(f"Intelligence extracted ({len(active_names)} active characters after alias collapsing). Updating relational graph...")
     
     # 3. Graph Updates
-    # Add characters to graph
+    # Add characters to graph; store aliases on node so RAG entity-matching can find them (A3)
     for name in active_names:
         char_id = normalize_id(name)
-        graph.add_character(char_id, {"display_name": name, "last_seen_chapter": chapter_counter})
+        char_aliases_for_node = sorted({
+            alias for alias, canon in alias_map.items() if canon == name and alias != name
+        })
+        graph.add_character(char_id, {
+            "display_name": name,
+            "last_seen_chapter": chapter_counter,
+            "aliases": char_aliases_for_node,
+        })
     # Create events to represent character interactions this chapter
     if events:
         # First pass: Create all events and store their generated IDs
@@ -221,8 +231,18 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Map involved_chars using the global full_alias_map
             involved_chars = list(set([full_alias_map.get(n, n) for n in involved_chars]))
             
-            # Filter out characters that aren't in active_names to be safe
-            valid_chars = [normalize_id(n) for n in involved_chars if normalize_id(n) in [normalize_id(an) for an in active_names]]
+            # P1 FIX: Accept characters that are active this chapter OR already exist in the graph.
+            # The old filter only allowed active_names, silently dropping cross-chapter references
+            # (e.g. Achille, Sophie, Andre) and leaving them with zero graph events.
+            all_graph_char_ids = {normalize_id(n) for n, d in graph.graph.nodes(data=True)
+                                  if d.get("type") == "character"}
+            active_char_ids = {normalize_id(n) for n in active_names}
+
+            valid_chars = []
+            for _n in involved_chars:
+                _cid = normalize_id(_n)
+                if _cid in active_char_ids or _cid in all_graph_char_ids:
+                    valid_chars.append(_cid)
             
             event_id = f"chapter_{chapter_counter}_event_{idx}"
             event_ids.append(event_id)
@@ -250,6 +270,17 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     relation_type=relation_type,
                     intensity=intensity,
                 )
+
+                # P3: Upsert direct character-to-character co-occurrence edges for every
+                # pair of participants so relationship queries don't need to traverse events.
+                for _i in range(len(valid_chars)):
+                    for _j in range(_i + 1, len(valid_chars)):
+                        graph.add_or_update_character_edge(
+                            valid_chars[_i], valid_chars[_j],
+                            relation_type=relation_type,
+                            chapter_id=chapter_counter,
+                            intensity=intensity,
+                        )
         
         # Second pass: Process causal links now that all events exist
         for idx, event_data in enumerate(events):
@@ -274,13 +305,43 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         graph.add_event(event_id, description, [normalize_id(n) for n in active_names], chapter_id=chapter_counter)
     
     logger.info("Graph updated. Calculating PageRank and Temporal Runtime Milestones...")
-    
+
+    # ── P4: Pre-compute all LLM wiki updates in a SINGLE batch call ──────────
+    # Build a payload for every active character that has new events this chapter.
+    # New characters (not yet in runtime_db) always need a profile call.
+    # Existing characters only need one if they have new events.
+    _batch_payload: Dict[str, dict] = {}
+    for _name in active_names:
+        _cid = normalize_id(_name)
+        _char_events = _char_event_index[_cid]  # A1: use canonical char_id key
+        _event_block = "\n".join([f"- {e.get('action_summary')}" for e in _char_events])
+        if not _event_block:
+            continue  # No events → no LLM call needed (existing logic handles this)
+        _existing_md = get_character_wiki_content(story_uuid, _cid) if _cid in runtime_db else ""
+        _batch_payload[_cid] = {
+            "name": _name,
+            "existing_wiki": _existing_md,
+            "new_events": _event_block,
+        }
+
+    # Execute the batch (one LLM call instead of N). Falls back to sequential internally.
+    _batch_profiles: Dict[str, dict] = {}
+    if _batch_payload:
+        logger.info(f"P4: Batch wiki update for {len(_batch_payload)} characters (1 LLM call)")
+        _batch_profiles = batch_update_character_profiles(_batch_payload)
+
     # 4. Update Story Engine State (Runtime tracking)
+    # B3: Compute PageRank ONCE for all characters — reuse the scores dict in the loop
+    # instead of calling nx.pagerank() once per character (N calls on the same graph).
+    _pagerank_cache: Dict[str, float] = graph.compute_chapter_scores(
+        current_chapter=chapter_counter, decay_rate=decay_rate
+    )
+
     for name in active_names:
         char_id = normalize_id(name)
         
-        # Calculate proper graph-based Centrality (PageRank with Temporal Decay)
-        new_score = graph.get_character_importance(char_id, current_chapter=chapter_counter, decay_rate=decay_rate)
+        # B3: Read from cached scores instead of recomputing PageRank
+        new_score = _pagerank_cache.get(char_id, 0.0)
         
         # Runtime Update
         predicted_gender = predicted_genders.get(name, "neutral")
@@ -295,13 +356,13 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 mention_count=1
             )
 
-            # Build event block for this character — O(1) via pre-built index
-            char_events_new = _char_event_index[name.lower()]
+            # Build event block for this character — A1: use char_id key
+            char_events_new = _char_event_index[char_id]
             event_text_block_new = "\n".join([f"- {e.get('action_summary')}" for e in char_events_new])
 
-            # LLM enrichment even on first appearance (if they have events)
+            # P4: Use pre-fetched batch profile; fall back to individual call if missing
             if event_text_block_new:
-                first_profile = update_character_profile("", event_text_block_new, name)
+                first_profile = _batch_profiles.get(char_id) or update_character_profile("", event_text_block_new, name)
             else:
                 first_profile = {}
 
@@ -347,9 +408,15 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             char.mention_count += 1
             char.confidence_score = new_score
 
-            # Find what happened to them this chapter — O(1) via pre-built index
-            char_events_this_chapter = _char_event_index[name.lower()]
+            # Find what happened to them this chapter — A1: use char_id key
+            char_events_this_chapter = _char_event_index[char_id]
             event_text_block = "\n".join([f"- {e.get('action_summary')}" for e in char_events_this_chapter])
+
+            # A2: Increment dialogue_count for events with conversational intensity
+            char.dialogue_count += sum(
+                1 for e in char_events_this_chapter
+                if e.get("intensity", 1) >= 2
+            )
 
             # Load existing wiki from JSON sidecar (auto-migrates .md if needed)
             old_wiki = load_character_wiki_json(story_uuid, char_id)
@@ -368,8 +435,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Fetch the existing markdown for the LLM context (so it can write prose)
             existing_wiki_md = get_character_wiki_content(story_uuid, char_id)
 
-            # LLM merge: existing bio + new events
-            profile_data = update_character_profile(existing_wiki_md, event_text_block, name)
+            # P4: Use pre-fetched batch profile; fall back to individual call if missing
+            profile_data = _batch_profiles.get(char_id) or update_character_profile(existing_wiki_md, event_text_block, name)
 
             # Graduation Check & Voice Locking
             did_graduate = check_graduation_status(char, wiki_traits=profile_data)
@@ -412,15 +479,23 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             runtime_db[char_id] = char
 
     # Phase 2: Iterate over all known characters to handle decay/de-graduation for absent characters
+    _active_char_ids = {normalize_id(n) for n in active_names}
     for char_id, char in runtime_db.items():
-        if char_id not in [normalize_id(n) for n in active_names]:
+        if char_id not in _active_char_ids:
             # They didn't appear, but their score decays due to time passing
-            decayed_score = graph.get_character_importance(char_id, current_chapter=chapter_counter, decay_rate=decay_rate)
+            # B3: Use cached scores where available; fall back to individual call for absent chars
+            decayed_score = _pagerank_cache.get(char_id) or graph.get_character_importance(
+                char_id, current_chapter=chapter_counter, decay_rate=decay_rate
+            )
             char.confidence_score = decayed_score
-            
-            # Did they fall out of provisional MAIN_CAST status?
-            if check_graduation_status(char):
-                logger.info(f"Character {char_id} score decayed. Voice lock released.")
+
+            # C2 FIX: Track voice_id BEFORE calling check_graduation_status so we can
+            # distinguish upward graduation from de-graduation in the log message.
+            old_voice = char.voice_id
+            changed = check_graduation_status(char)
+            if changed and old_voice is not None and char.voice_id is None:
+                # De-graduation: score decayed below EXTRA threshold → voice released
+                logger.info(f"Character {char_id} score decayed below threshold. Voice lock released.")
                 # Sync voice_id=None to the on-disk wiki sidecar so disk and
                 # runtime stay consistent (the sidecar still had the old voice_id).
                 decayed_wiki = load_character_wiki_json(story_uuid, char_id)
@@ -429,6 +504,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                         update={"voice_id": None, "confidence": char.confidence_score}
                     )
                     save_character_wiki(story_uuid, updated_wiki)
+            elif changed and char.voice_id is not None:
+                logger.info(f"Character {char_id} graduated during decay pass. Voice: {char.voice_id}")
 
     # Atomically save all changes to disk
     graph.save_graph()

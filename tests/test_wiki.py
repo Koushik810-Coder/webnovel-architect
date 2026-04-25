@@ -334,6 +334,25 @@ class TestApplyProfileUpdates:
         result = apply_profile_updates(base, updates)
         assert result.short_description == "A legendary knight."
 
+    def test_new_timeline_events_appended(self, base):
+        """Timeline events must be appended, not overwritten."""
+        base.timeline = [{"chapter": 1, "event": "Born"}]
+        updates = {"new_timeline_events": [{"chapter": 2, "event": "Started walking"}]}
+        result = apply_profile_updates(base, updates)
+        assert len(result.timeline) == 2
+        assert result.timeline[1]["event"] == "Started walking"
+        assert len(base.timeline) == 1  # Base should not be mutated
+        
+    def test_metadata_and_relationships_applied(self, base):
+        """Metadata and relationships from LLM should overwrite base."""
+        updates = {
+            "metadata": {"Power": "S-Class"},
+            "relationships": [{"target_id": "bob", "relation": "Friend"}]
+        }
+        result = apply_profile_updates(base, updates)
+        assert result.metadata == {"Power": "S-Class"}
+        assert result.relationships[0]["target_id"] == "bob"
+
 
 # ── 6. JSON sidecar: save/load round-trip ────────────────────────────────────
 

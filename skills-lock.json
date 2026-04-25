@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "4cba41db3e691cd6b00beb95990b3c852e2854f0b5a6d77e7b8667db3c64818a"
     },
+    "conversation-memory": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "computedHash": "bc9a3a434e3d92e9803cc2f5bdea87ab07dd4f06d346918db269c3044fd91144"
+    },
     "docx": {
       "source": "anthropics/skills",
       "sourceType": "github",

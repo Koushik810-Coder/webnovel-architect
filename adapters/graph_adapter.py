@@ -28,8 +28,17 @@ class GraphProvider:
             # Record the debut chapter once — never overwritten on subsequent updates
             if "last_seen_chapter" in attributes:
                 attributes.setdefault("first_seen_chapter", attributes["last_seen_chapter"])
-            
-        self.graph.add_node(name, type="character", **attributes)
+
+            self.graph.add_node(name, type="character", **attributes)
+        else:
+            # On subsequent visits, merge new aliases rather than overwriting the node.
+            # This preserves aliases from previous chapters and accumulates them.
+            existing = dict(self.graph.nodes[name])
+            new_aliases = set(attributes.pop("aliases", []))
+            old_aliases = set(existing.get("aliases", []))
+            merged_aliases = sorted(old_aliases | new_aliases)
+            attributes["aliases"] = merged_aliases
+            self.graph.nodes[name].update(attributes)
 
     def add_event(
         self,
@@ -79,6 +88,48 @@ class GraphProvider:
         if self.graph.has_node(source_event_id) and self.graph.has_node(target_event_id):
             if self.graph.nodes[source_event_id].get("type") == "event" and self.graph.nodes[target_event_id].get("type") == "event":
                 self.graph.add_edge(source_event_id, target_event_id, relation=relation_type)
+
+    def add_or_update_character_edge(
+        self,
+        char_a: str,
+        char_b: str,
+        relation_type: str = "neutral",
+        chapter_id: int = 0,
+        intensity: int = 1,
+    ):
+        """Upserts a direct character-to-character edge with co-occurrence tracking.
+
+        On first encounter: creates bidirectional edges (stored as two directed edges).
+        On re-encounter: bumps co_occurrence_count, records newest relation_type, and
+        accumulates the weight so high-frequency pairs rank higher in PageRank.
+
+        Args:
+            char_a: Normalized character ID of the first participant.
+            char_b: Normalized character ID of the second participant.
+            relation_type: Qualitative relationship label (e.g. 'friendly', 'hostile').
+            chapter_id: Chapter where this co-occurrence was observed.
+            intensity: Narrative intensity 1-5; added to cumulative edge weight.
+        """
+        for src, dst in [(char_a, char_b), (char_b, char_a)]:
+            if not self.graph.has_node(src) or not self.graph.has_node(dst):
+                continue
+            if self.graph.has_edge(src, dst):
+                edge_data = self.graph[src][dst]
+                edge_data["co_occurrence_count"] = edge_data.get("co_occurrence_count", 1) + 1
+                edge_data["last_seen_chapter"] = chapter_id
+                edge_data["last_relation_type"] = relation_type
+                edge_data["weight"] = edge_data.get("weight", 0.0) + float(intensity)
+            else:
+                self.graph.add_edge(
+                    src, dst,
+                    edge_type="character_relation",
+                    relation_type=relation_type,
+                    last_relation_type=relation_type,
+                    co_occurrence_count=1,
+                    first_seen_chapter=chapter_id,
+                    last_seen_chapter=chapter_id,
+                    weight=float(intensity),
+                )
 
     def get_character_events(self, name: str) -> list:
         """Returns a chronological list of all events a character participated in."""
@@ -171,6 +222,56 @@ class GraphProvider:
         if total_weight == 0:
             return 0.0
         return char_weight / total_weight
+
+    def compute_chapter_scores(
+        self,
+        current_chapter: int = 0,
+        decay_rate: float = 0.05,
+    ) -> dict:
+        """B3: Computes importance scores for ALL characters in ONE PageRank call.
+
+        Returns a dict mapping character_id -> score, applying the same temporal
+        decay logic as get_character_importance(). Callers should invoke this once
+        per chapter and read from the returned dict instead of calling
+        get_character_importance() per character (which recomputes PageRank N times).
+        """
+        if not self.graph.nodes:
+            return {}
+
+        try:
+            pagerank_scores = nx.pagerank(self.graph, alpha=0.85, weight="weight")
+        except Exception as e:
+            logger.warning(f"PageRank computation failed: {e}. Falling back to degree centrality.")
+            pagerank_scores = {n: float(self.graph.degree(n)) for n in self.graph.nodes}
+
+        result: dict = {}
+        for node, data in self.graph.nodes(data=True):
+            if data.get("type") != "character":
+                continue
+
+            base_score = float(pagerank_scores.get(node, 0.0))
+
+            # Temporal decay: find the most recent chapter edge for this character
+            max_chapter = 0
+            for _, _, edge_data in self.graph.out_edges(node, data=True):
+                max_chapter = max(max_chapter, edge_data.get("chapter_id", 0))
+
+            if current_chapter > 0 and max_chapter > 0:
+                age = max(0, current_chapter - max_chapter)
+                score = base_score * ((1.0 - decay_rate) ** age)
+            else:
+                score = base_score
+
+            # Debut Prominence Quotient (DPQ) — same logic as get_character_importance
+            first_seen = data.get("first_seen_chapter", current_chapter)
+            if first_seen == current_chapter:
+                dpq = self.get_debut_prominence(node, debut_chapter_id=current_chapter)
+                if dpq >= 0.40:
+                    score = max(score, DELTA_UPPER + 0.01)
+
+            result[node] = score
+
+        return result
 
     def get_character_importance(self, name: str, current_chapter: int = 0, decay_rate: float = 0.05) -> float:
         """

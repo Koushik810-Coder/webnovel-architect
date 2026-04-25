@@ -445,8 +445,23 @@ elif page == "Wiki Memory":
             with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
                 content = f.read()
                 
-            col1, col2 = st.columns([8, 2])
+            col1, col2, col3 = st.columns([6, 2, 2])
             with col2:
+                from app.services.wiki import enrich_wiki_from_rag
+                if st.button("✨ Improve with RAG", use_container_width=True):
+                    with st.spinner("Enriching wiki using Graph RAG..."):
+                        char_id = selected_file.replace('.md', '')
+                        try:
+                            enrich_wiki_from_rag(active_story_uuid, char_id)
+                            st.success("Wiki enriched successfully!")
+                            # Small delay to let the user see the success message
+                            import time
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to enrich wiki: {e}")
+                            
+            with col3:
                 st.download_button(
                     label="📥 Export Wiki Entry",
                     data=content,

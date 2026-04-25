@@ -105,14 +105,21 @@ Do NOT include any prefix like "Character Name:". Just the name.
     return blocks
 
 
-def build_narration_segments(chapter_text: str) -> List[NarrationSegment]:
+def build_narration_segments(chapter_text: str, story_uuid: str = None) -> List[NarrationSegment]:
     """
     High-level legacy compatibility wrapper.
     Parses text, resolves speakers, and assigns voices.
 
+    Args:
+        chapter_text: Raw text of the chapter to narrate.
+        story_uuid: Story identifier used to look up locked voice IDs from the wiki.
+                    If None, voices are always freshly assigned (no wiki lookup).
+
     Returns:
         List[NarrationSegment]: The audio-ready segments.
     """
+    from app.services.wiki import load_character_wiki_json  # lazy import avoids circular
+
     blocks = parse_chapter_to_script_blocks(chapter_text)
     resolved = resolve_dialogue_speakers(blocks)
 
@@ -122,7 +129,13 @@ def build_narration_segments(chapter_text: str) -> List[NarrationSegment]:
         voice_id = None
         if speaker != "Narrator":
             char_id = normalize_id(speaker)
-            voice_id = assign_voice(char_id)
+            # A4 FIX: Prefer the locked voice from the wiki over assigning a new one.
+            # assign_voice() may return a different voice than the one persisted during graduation.
+            if story_uuid:
+                wiki = load_character_wiki_json(story_uuid, char_id)
+                voice_id = wiki.voice_id if (wiki and wiki.voice_id) else None
+            if not voice_id:
+                voice_id = assign_voice(char_id)
 
         segments.append(NarrationSegment(
             text=b.text,
@@ -130,3 +143,4 @@ def build_narration_segments(chapter_text: str) -> List[NarrationSegment]:
             voice_id=voice_id
         ))
     return segments
+

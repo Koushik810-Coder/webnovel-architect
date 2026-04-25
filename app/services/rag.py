@@ -115,7 +115,7 @@ The user has asked a question about the story.
 
 Use the provided chronological timeline of retrieved Dynamic Event Units (DEUs) to answer their question. 
 Reason step-by-step through the timeline (Time-CoT) to understand how states changed over time.
-If the answer is not in the timeline, say you don't know based on the current context.
+You are allowed to be creative and provide an engaging, narrative response. You can extrapolate, interpret character motivations, and weave the events together creatively, as long as it aligns with the core facts in the timeline.
 
 {timeline_str}
 
@@ -130,7 +130,7 @@ Reason through the context chronologically and then provide a clear, narrative a
     return response
 
 
-def query_character_profile(story_uuid: str, character_id: str, character_name: str, model: str = None) -> dict:
+def query_character_profile(story_uuid: str, character_id: str, character_name: str, model: str = None, existing_wiki_json: str = None) -> dict:
     """
     RAG-powered character profile enrichment using Time-CoT.
 
@@ -187,12 +187,28 @@ Action: {ev['description']}
 After: {ev['post_conditions']}
 """
 
+    existing_context = ""
+    if existing_wiki_json:
+        existing_context = f"""
+Here is their CURRENT wiki page information in JSON format:
+---
+{existing_wiki_json}
+---
+IMPORTANT: You MUST merge your findings from the timeline with the current wiki information above. Do NOT discard existing information (like appearances, traits, or past relationships) unless it is explicitly contradicted by the timeline. Combine them to form a cohesive, updated profile.
+"""
+
     prompt = f"""
 You are the loremaster of a serialized web novel. Your task is to build a complete, accurate wiki profile for the character '{character_name}' by reasoning through every event they have been involved in, from their first appearance to their most recent.
+{existing_context}
 
 {timeline_str}
 
-Based on ALL of the above events, produce a comprehensive character profile as a JSON object. Infer details from context — do NOT use placeholders like "Unknown".
+Based on ALL of the above events and the current wiki (if provided), produce a comprehensive character profile as a JSON object. 
+
+CRITICAL CONSTRAINTS:
+1. FACTUAL ACCURACY: Only extract facts explicitly stated or directly demonstrated in the provided timeline events, or preserved from the existing wiki.
+2. NO HALLUCINATIONS: Do not invent, assume, or guess names, places, relationships, traits, ages, or appearances.
+3. MISSING DATA: If a detail is missing or unknown based strictly on the timeline or existing wiki, leave it as null or an empty list. Do NOT use placeholders like "Unknown" or "Not recorded".
 
 Respond ONLY with a valid JSON object matching this exact schema:
 {{
@@ -206,9 +222,12 @@ Respond ONLY with a valid JSON object matching this exact schema:
     "affiliations": ["Faction A", "Group B"],
     "appearance": "A cohesive physical description inferred from context.",
     "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
-    "notable_quirks": ["Quirk 1", "Quirk 2"]
+    "notable_quirks": ["Quirk 1", "Quirk 2"],
+    "relationships": [{{"target_id": "character_id", "relation": "Rival", "context": "Brief context for the relationship"}}],
+    "new_timeline_events": [{{"chapter": 5, "event": "Description of what happened to this character"}}]
 }}
 """
+
 
     try:
         profile = analyze_text_json(prompt, model=model)

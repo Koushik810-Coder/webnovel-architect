@@ -166,10 +166,23 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
     - 'active_character_names': Unique character names. Normalize titles (e.g., return "Stark" instead of "Lord Stark").
     - 'character_genders': Map names to "male", "female", or "neutral".
     - 'active_world_terms': Unique world-building terms (locations, factions, magical systems, ranks).
-    - 'events': List of significant events. Must follow strictly the intensity rubric:
-      1=Minor passing mention, 2=Brief casual conversation, 3=Significant sustained conversation/minor argument, 4=Major argument/physical altercation, 5=Life-altering event.
+    - 'events': Extract ALL meaningful scenes, not just climaxes. Aim for 1 event per
+      distinct scene or conversation shift. Each sustained conversation between a unique
+      pair/group of characters should be its own event.
+
+      Intensity rubric (revised):
+      1 = Character mentioned in passing (not physically present)
+      2 = Brief exchange (1–3 lines of dialogue)
+      3 = Extended conversation (4+ exchanges, or meaningful internal monologue)
+      4 = Argument, confrontation, power struggle, or physical altercation
+      5 = Life-altering revelation, death, transformation, or irreversible change
+
+      Do NOT collapse separate scenes into one event even if they share characters.
+      Each location change or time-jump should produce a new event.
+      Minimum expected: 1 event per ~10 dialogue exchanges. Aim for completeness.
     - 'relation_type' must be ONE of: "friendly", "hostile", "combat", "neutral", "mentor", "romantic", "betrayal".
     - 'causes_event_indexes': Array of zero-based integers linking to other events in the list.
+      Only link events where one directly causes or enables the other.
 
     FEW-SHOT EXAMPLES:
     Example Input Snippet:
@@ -204,18 +217,27 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
     if not isinstance(events, list):
         events = []
         
+    # Validate types to prevent downstream crashes if LLM hallucinates strings instead of expected types
+    active_characters = [str(c) for c in active_characters if c is not None]
+    active_world_terms = [str(w) for w in active_world_terms if w is not None]
+    valid_events = [e for e in events if isinstance(e, dict)]
+    
+    character_genders = result.get("character_genders", {})
+    if not isinstance(character_genders, dict):
+        character_genders = {}
+        
     # Deduplicate and sort
     active_characters = sorted(list(set(active_characters)))
     active_world_terms = sorted(list(set(active_world_terms)))
     
-    logger.info(f"LLM Extraction Complete | {len(active_characters)} characters | {len(active_world_terms)} world terms | {len(events)} events | {dialogue_count} dialogue blocks")
+    logger.info(f"LLM Extraction Complete | {len(active_characters)} characters | {len(active_world_terms)} world terms | {len(valid_events)} events | {dialogue_count} dialogue blocks")
     
     return {
         "active_character_names": active_characters,
-        "character_genders": result.get("character_genders", {}),
+        "character_genders": character_genders,
         "active_world_terms": active_world_terms,
         "dialogue_count_total": dialogue_count,
-        "events": events,
+        "events": valid_events,
         "raw_entities": {name: 1 for name in active_characters}
     }
 
