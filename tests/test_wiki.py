@@ -353,6 +353,25 @@ class TestApplyProfileUpdates:
         assert result.metadata == {"Power": "S-Class"}
         assert result.relationships[0]["target_id"] == "bob"
 
+    def test_placeholder_strings_rejected_as_falsy(self, base):
+        """LLM placeholder strings like 'Unknown' must NOT overwrite real data."""
+        updates = {
+            "status": "Unknown",
+            "age": "N/A",
+            "species": "unknown",
+            "role": "Not specified",
+            "appearance": "No description available",
+            "short_description": "Detailed history not yet available.",
+        }
+        result = apply_profile_updates(base, updates)
+        # All base values must be preserved — placeholders must be rejected
+        assert result.status == "Alive"
+        assert result.age == "22"
+        assert result.species == "Human"
+        assert result.role == "Protagonist"
+        assert result.appearance == "Auburn hair."
+        assert result.short_description == "Hero of the story."
+
 
 # ── 6. JSON sidecar: save/load round-trip ────────────────────────────────────
 

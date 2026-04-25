@@ -318,10 +318,20 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         if not _event_block:
             continue  # No events → no LLM call needed (existing logic handles this)
         _existing_md = get_character_wiki_content(story_uuid, _cid) if _cid in runtime_db else ""
+
+        # Include relevant text snippets so the LLM has prose context, not just bullets.
+        # Extract sentences mentioning the character name (up to 500 chars to stay within limits).
+        _text_mentions = []
+        for _sentence in text.replace('\n', ' ').split('.'):
+            if _name.lower() in _sentence.lower():
+                _text_mentions.append(_sentence.strip() + '.')
+        _text_context = ' '.join(_text_mentions)[:500] if _text_mentions else ""
+
         _batch_payload[_cid] = {
             "name": _name,
             "existing_wiki": _existing_md,
             "new_events": _event_block,
+            "text_context": _text_context,
         }
 
     # Execute the batch (one LLM call instead of N). Falls back to sequential internally.
@@ -369,28 +379,20 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Build aliases list: all surface forms from this chapter that map to this character
             char_aliases = sorted({alias for alias, canon in alias_map.items() if canon == name and alias != name})
 
-            wiki_entry = CharacterWiki(
+            # Build a skeleton wiki, then apply LLM profile through apply_profile_updates
+            # so all the same placeholder-filtering logic that protects existing characters
+            # also protects new characters (previously raw .get() let "Unknown" through).
+            base_wiki = CharacterWiki(
                 character_id=char_id,
                 display_name=name,
                 aliases=char_aliases,
-                short_description=(
-                    first_profile.get("short_description")
-                    or f"Appeared in Chapter {chapter_counter}."
-                ),
-                long_description=first_profile.get("synopsis"),
-                status=first_profile.get("status"),
-                age=first_profile.get("age"),
-                gender=first_profile.get("gender") or predicted_gender,
-                species=first_profile.get("species"),
-                role=first_profile.get("role"),
-                affiliations=first_profile.get("affiliations") or [],
-                appearance=first_profile.get("appearance"),
-                personality_traits=first_profile.get("personality_traits") or [],
-                notable_quirks=first_profile.get("notable_quirks") or [],
+                short_description=f"Appeared in Chapter {chapter_counter}.",
+                gender=predicted_gender,
                 first_appearance_chapter=chapter_counter,
                 last_updated_chapter=chapter_counter,
                 confidence=new_score,
             )
+            wiki_entry = apply_profile_updates(base_wiki, first_profile)
             save_character_wiki(story_uuid, wiki_entry)
 
             # DPQ: evaluate graduation immediately in case they dominate the chapter
@@ -398,7 +400,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             did_graduate = check_graduation_status(char, wiki_traits={"gender": wiki_entry.gender or predicted_gender})
             if did_graduate:
                 logger.info(f"New Character {char.character_id} graduated via DPQ! Assigned Voice: {char.voice_id}")
-                wiki_entry.voice_id = char.voice_id
+                wiki_entry = wiki_entry.model_copy(update={"voice_id": char.voice_id})
                 save_character_wiki(story_uuid, wiki_entry)
                 
         else:

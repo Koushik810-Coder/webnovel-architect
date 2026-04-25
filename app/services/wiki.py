@@ -25,9 +25,24 @@ def apply_profile_updates(base: CharacterWiki, updates: dict) -> CharacterWiki:
 
     Returns a NEW CharacterWiki; never mutates `base`.
     """
+    # Placeholder strings that LLMs return instead of null — treat as falsy.
+    _PLACEHOLDER_STRINGS = {
+        "unknown", "n/a", "none", "not recorded", "not available",
+        "not specified", "unspecified", "tbd", "to be determined",
+        "no information", "no data", "no description", "no description available",
+        "detailed history not yet available.", "unassigned",
+    }
+
     def _truthy(v) -> bool:
         if v is None: return False
-        if isinstance(v, str): return bool(v.strip())
+        if isinstance(v, str):
+            stripped = v.strip()
+            if not stripped:
+                return False
+            # Reject LLM placeholder strings like "Unknown", "N/A", etc.
+            if stripped.lower() in _PLACEHOLDER_STRINGS:
+                return False
+            return True
         if isinstance(v, list): return len(v) > 0
         return bool(v)
 
@@ -503,32 +518,36 @@ def batch_update_character_profiles(
     if not characters:
         return {}
 
-    batch_prompt = f"""
-You are the loremaster for a webnovel. Update the following character profiles based on
-their respective new events. Return a single JSON object where each key is the character_id
-and the value is the updated profile dict (same schema as a single-character update).
+    batch_prompt = f"""\
+You are the loremaster for a serialized web novel. For EACH character below, update their wiki
+profile based on their existing wiki (if any) and the new events from this chapter.
 
-CRITICAL CONSTRAINTS (apply to ALL characters):
-1. FACTUAL ACCURACY: Only extract facts explicitly stated in the provided text.
-2. NO HALLUCINATIONS: Do not invent names, places, relationships, traits, or appearances.
-3. CONSERVATIVE UPDATES: Preserve existing wiki state unless new events provide a clear change.
+Return a single JSON object where each KEY is the character_id (lowercase, underscored) and
+the VALUE is that character's updated profile dict.
 
-Each profile dict must match this schema:
+CRITICAL CONSTRAINTS (apply to EVERY character):
+1. FACTUAL ACCURACY: Only extract facts explicitly stated or directly demonstrated in the provided text.
+2. NO HALLUCINATIONS: Do not invent, assume, or guess names, places, relationships, traits, ages, or appearances.
+3. MISSING DATA: If a detail is genuinely unknown, use null or an empty list. Do NOT write placeholder text like "Unknown", "N/A", "Not recorded", or "Not specified".
+4. CONSERVATIVE UPDATES: Preserve existing wiki info unless the new events provide a clear canonical change.
+5. SHORT DESCRIPTIONS: Must be a single punchy sentence (≤20 words) describing who this character IS — NOT just their name.
+
+Each character's profile dict MUST match this exact schema:
 {{
-    "short_description": str | null,
-    "synopsis": str | null,
-    "status": str | null,
-    "age": str | null,
-    "gender": str | null,
-    "species": str | null,
-    "role": str | null,
-    "affiliations": list,
-    "appearance": str | null,
-    "personality_traits": list,
-    "notable_quirks": list,
-    "metadata": dict,
-    "relationships": list,
-    "new_timeline_events": list
+    "short_description": "A single punchy sentence (≤20 words) describing who this character IS — their role, defining trait, or function in the story.",
+    "synopsis": "A cohesive chronological narrative biography covering their full story arc so far.",
+    "status": "Alive, Deceased, Missing, etc. — or null.",
+    "age": "Their stated or inferred age as a string — or null.",
+    "gender": "Their gender — or null.",
+    "species": "Their race or species — or null.",
+    "role": "Protagonist, Antagonist, Supporting, Mentor, etc. — or null.",
+    "affiliations": ["Faction A", "Group B"],
+    "appearance": "A cohesive physical description inferred from context.",
+    "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
+    "notable_quirks": ["Quirk 1", "Quirk 2"],
+    "metadata": {{}},
+    "relationships": [{{"target_id": "character_id", "relation": "Rival", "context": "Brief context"}}],
+    "new_timeline_events": [{{"chapter": 5, "event": "Description of what happened"}}]
 }}
 
 Characters to update:
