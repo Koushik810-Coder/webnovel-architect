@@ -1,0 +1,216 @@
+================================================================================
+            WEBNOVEL ARCHITECT — COMMAND REFERENCE
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. ENVIRONMENT SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Create a Python virtual environment
+python -m venv venv
+
+# Activate virtual environment (Windows)
+.\venv\Scripts\activate
+
+# Activate virtual environment (Linux / macOS)
+source venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Download the required spaCy NLP model
+python -m spacy download en_core_web_sm
+
+# Install Node.js dependencies for the React front-end
+cd web-ui
+npm install
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  2. RUNNING THE APPLICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+--- Streamlit UI (Researcher / Developer Dashboard) ---
+
+# Launch the Streamlit dashboard (default: http://localhost:8501)
+streamlit run app_ui.py
+
+
+--- FastAPI + React UI (End-User Experience) ---
+
+# Step A: Start the FastAPI backend (default: http://localhost:8000)
+uvicorn app.main:app --reload
+
+# Step B: Start the Vite React front-end (default: http://localhost:5173)
+cd web-ui
+npm run dev
+
+
+--- CLI Demo ---
+
+# Run the CLI ingestion demo (no UI)
+python main.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  3. TESTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Run the full Python test suite
+pytest
+
+# Run tests with verbose output
+pytest -v
+
+# Run a specific test file
+pytest tests/<test_file>.py
+
+# Run tests matching a keyword expression
+pytest -k "keyword"
+
+# Run React front-end tests (Vitest)
+cd web-ui
+npx vitest run
+
+# Run React front-end tests in watch mode
+cd web-ui
+npx vitest
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  4. LINTING & TYPE CHECKING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Lint Python code with Ruff
+ruff check .
+
+# Auto-fix Python lint errors
+ruff check . --fix
+
+# Type-check Python with MyPy
+mypy .
+
+# Lint React front-end (ESLint)
+cd web-ui
+npm run lint
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  5. BUILD & PREVIEW (React Front-End)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Build the React front-end for production
+cd web-ui
+npm run build
+
+# Preview the production build locally
+cd web-ui
+npm run preview
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  6. EVALUATION & RESEARCH SCRIPTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Run the end-to-end evaluation harness (F1, PageRank, TTS metrics)
+python scripts/evaluate.py
+
+# Simulate temporal decay across chapters (ablation study)
+python scripts/simulate_decay.py
+
+# Plot decay simulation results
+python scripts/plot_decay_results.py
+
+# Generate a double-blind MOS (Mean Opinion Score) survey
+python scripts/generate_mos_survey.py
+
+# Launch the MOS audio evaluator UI (Streamlit)
+streamlit run scripts/mos_eval_ui.py
+
+# Compute Inter-Annotator Agreement (Cohen's Kappa)
+python scripts/eval_iaa_kappa.py
+
+# Verify the modular adapter pipeline is operational
+python scripts/verify_modular.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  7. UTILITY / DEBUG SCRIPTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Debug character extraction on sample text
+python scripts/debug_extraction.py
+
+# Debug spaCy NER on sample text
+python scripts/debug_spacy.py
+
+# Download test corpora and run extraction
+python scripts/download_and_test.py
+
+# Pull a Royal Road novel corpus for benchmarking
+python scripts/pull_corpus.py
+
+# Extract Mermaid diagrams from documentation
+python scripts/extract_diagrams.py
+
+# Fix/reset voice assignments in the runtime database
+python scripts/fix_voices.py
+
+# Setup/download required TTS models
+python scripts/setup_models.py
+
+# Simulate TTS audio generation for testing
+python scripts/simulate_audio_tts.py
+
+# Build a standalone binary distribution
+python scripts/make_bin.py
+
+# Sync DOCX document with codebase docs
+python scripts/sync_docx.py
+
+# Generate a review presentation (PowerPoint)
+python scripts/generate_review_ppt.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  8. GIT COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Check status
+git status
+
+# Stage all changes
+git add .
+
+# Commit with message
+git commit -m "your message here"
+
+# Push to remote
+git push origin main
+
+# Pull latest from remote
+git pull origin main
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  9. CONFIGURATION FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  config.yaml          — LLM model, TTS engine, and fallback TTS settings
+  .env                 — API keys (GEMINI, GROQ, NVIDIA NIM)
+  pyproject.toml       — Ruff & MyPy configuration
+  pytest.ini           — Pytest options and ignored directories
+  pyrightconfig.json   — Pyright type-checker settings
+  web-ui/vite.config.js — Vite dev server and build options
+  web-ui/eslint.config.js — ESLint rules for the React front-end
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  10. API ENDPOINTS (FastAPI — localhost:8000)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  GET  /api/health         — Health check
+  ---  /api/stories/*      — Story CRUD (create, list, rename, delete, wipe)
+  ---  /api/stories/{id}/* — Story detail, ingest, scrape, status
+  ---  /api/chapters/*     — Chapter listing and retrieval
+  ---  /api/characters/*   — Character data and wiki
+  ---  /api/appearances/*  — Character appearance tracking
+  ---  /api/narration/*    — Narration / dialogue script
+  ---  /api/audio/*        — Audio generation and streaming
+  ---  /api/rag/*          — Graph-RAG Q&A queries
+
+  # View full auto-generated API docs (Swagger)
+  # Open in browser: http://localhost:8000/docs
+
+================================================================================

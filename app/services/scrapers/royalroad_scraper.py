@@ -108,6 +108,10 @@ class RoyalRoadScraper(BaseScraper):
             
         soup = BeautifulSoup(response.text, "html.parser")
         
+        # Extract fiction title
+        fic_title_el = soup.find("h1", class_="fic-title") or soup.find("h1")
+        fic_title = fic_title_el.text.strip() if fic_title_el else ""
+
         synopsis_div = soup.find("div", class_="description")
         synopsis = synopsis_div.text.strip() if synopsis_div else ""
         
@@ -120,6 +124,7 @@ class RoyalRoadScraper(BaseScraper):
             cover_url = f"{self.base_url}{cover_url}"
             
         return {
+            "title": fic_title,
             "synopsis": synopsis,
             "cover_url": cover_url
         }

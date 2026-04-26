@@ -136,3 +136,6 @@ find_strings.py
 test_llm.py
 test_wiki_ingest.py
 extract.py
+
+# UV package manager
+uv.lock

@@ -10,8 +10,8 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
-# Demo ingestion limit — change here to update both the status display and the batch call.
-_DEMO_CHAPTER_LIMIT = 3
+# Default batch size for the initial import.
+_DEFAULT_INITIAL_BATCH = 3
 
 def _get_story_progress(story_uuid: str) -> Optional[Dict]:
     """Helper to get progress data from index state."""
@@ -20,31 +20,43 @@ def _get_story_progress(story_uuid: str) -> Optional[Dict]:
         return None
         
     chapters = state.get("chapters", [])
-    total = min(len(chapters), _DEMO_CHAPTER_LIMIT)
+    total_available = len(chapters)
     current = state.get("last_ingested_index", -1) + 1
     
     # Read strict status if set
     current_status = state.get("status")
 
     if current_status:
-        # If explicitly recorded in state
         final_status = current_status
     else:
-        # Legacy fallback
-        if current >= total:
+        if current >= total_available:
             final_status = "completed"
-        elif current == 0 and total > 0:
-            # Never started properly or aborted before first success
+        elif current == 0 and total_available > 0:
             final_status = "failed"
         else:
-            # Previously paused/crashed mid-way
-            final_status = "interrupted"
+            final_status = "idle"
     
     return {
         "current": current,
-        "total": total,
+        "total": current,
+        "total_available": total_available,
         "status": final_status
     }
+
+
+def _deduplicate_name(desired_name: str) -> str:
+    """If a story with `desired_name` already exists, return 'Name 2', 'Name 3', etc."""
+    existing_names = {s["name"] for s in StoryManager.list_stories()}
+    if desired_name not in existing_names:
+        return desired_name
+    
+    counter = 2
+    while True:
+        candidate = f"{desired_name} {counter}"
+        if candidate not in existing_names:
+            return candidate
+        counter += 1
+
 
 @router.get("/")
 def get_stories():
@@ -80,21 +92,87 @@ def get_story(story_uuid: str):
     story["progress"] = _get_story_progress(story_uuid)
     return story
 
+
+# ── CRUD Payloads ──────────────────────────────────────────────────────────────
+
 class ImportRequest(BaseModel):
     url: str
 
-def ingest_background(story_uuid: str, chapters: list):
-    logger.info(f"Background ingest started for story {story_uuid} (chapters 1-3)")
+class CreateStoryRequest(BaseModel):
+    name: str
+
+class RenameRequest(BaseModel):
+    name: str
+
+class IngestMoreRequest(BaseModel):
+    count: int = 5
+
+
+# ── Story Management Endpoints ─────────────────────────────────────────────────
+
+@router.post("/create")
+def create_story(payload: CreateStoryRequest):
+    """Create a blank story with a given name."""
+    name = _deduplicate_name(payload.name.strip())
+    new_uuid = StoryManager.create_story(name)
+    logger.info(f"Created blank story '{name}' (UUID: {new_uuid})")
+    return {"status": "success", "story_uuid": new_uuid, "name": name}
+
+
+@router.put("/{story_uuid}/rename")
+def rename_story(story_uuid: str, payload: RenameRequest):
+    """Rename an existing story."""
+    new_name = payload.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    success = StoryManager.rename_story(story_uuid, new_name)
+    if not success:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return {"status": "success", "name": new_name}
+
+
+@router.delete("/{story_uuid}")
+def delete_story(story_uuid: str):
+    """Soft-delete a story (moved to trash)."""
+    success = StoryManager.soft_delete_story(story_uuid)
+    if not success:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return {"status": "success"}
+
+
+@router.post("/{story_uuid}/wipe")
+def wipe_story(story_uuid: str):
+    """Wipe all generated data but keep the story shell."""
+    success = StoryManager.wipe_story_data(story_uuid)
+    if not success:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return {"status": "success"}
+
+
+# ── Import & Ingestion Flow ────────────────────────────────────────────────────
+
+def _ingest_background(story_uuid: str, chapters_slice: list, start_offset: int):
+    """Generic background worker that ingests a slice of chapters.
+    
+    Args:
+        story_uuid: Target story.
+        chapters_slice: The list of chapter dicts to process (each has 'title' & 'url').
+        start_offset: The 0-based global index of the first chapter in this batch
+                      (used to correctly update last_ingested_index).
+    """
+    batch_count = len(chapters_slice)
+    logger.info(f"Background ingest started for story {story_uuid}: "
+                f"{batch_count} chapters starting at index {start_offset}")
     
     def progress_cb(current, total):
         state = load_index_state(story_uuid)
         if state:
-            state["last_ingested_index"] = current - 1
+            state["last_ingested_index"] = start_offset + current - 1
             save_index_state(story_uuid, state)
-            logger.debug(f"Progress update for {story_uuid}: {current}/{total}")
+            logger.debug(f"Progress update for {story_uuid}: "
+                         f"global index {start_offset + current - 1}, batch {current}/{total}")
 
     try:
-        # Mark as processing right as thread starts
         state = load_index_state(story_uuid)
         if state:
             state["status"] = "processing"
@@ -102,13 +180,12 @@ def ingest_background(story_uuid: str, chapters: list):
 
         ingest_multiple_chapters(
             story_uuid,
-            chapters[:_DEMO_CHAPTER_LIMIT],
-            extractor="spacy", 
+            chapters_slice,
+            extractor="llm", 
             decay_rate=0.05,
             progress_callback=progress_cb
         )
         
-        # Mark as completed
         state = load_index_state(story_uuid)
         if state:
             state["status"] = "completed"
@@ -123,6 +200,44 @@ def ingest_background(story_uuid: str, chapters: list):
             state["error_message"] = str(e)
             save_index_state(story_uuid, state)
 
+
+@router.post("/{story_uuid}/ingest_more")
+def ingest_more_chapters(story_uuid: str, payload: IngestMoreRequest, background_tasks: BackgroundTasks):
+    """Continue ingesting the next N chapters from the scraped index."""
+    state = load_index_state(story_uuid)
+    if not state or "chapters" not in state:
+        raise HTTPException(status_code=400, detail="No chapter index found. Import a URL first.")
+    
+    if state.get("status") == "processing":
+        raise HTTPException(status_code=409, detail="Ingestion already in progress.")
+    
+    all_chapters = state["chapters"]
+    next_index = state.get("last_ingested_index", -1) + 1
+    remaining = len(all_chapters) - next_index
+    
+    if remaining <= 0:
+        raise HTTPException(status_code=400, detail="All chapters have already been ingested.")
+    
+    batch_count = min(payload.count, remaining)
+    chapters_slice = all_chapters[next_index:next_index + batch_count]
+    
+    logger.info(f"Ingest more: story {story_uuid}, processing {batch_count} chapters "
+                f"(index {next_index} to {next_index + batch_count - 1})")
+    
+    # Pre-set status to processing
+    state["status"] = "processing"
+    save_index_state(story_uuid, state)
+    
+    background_tasks.add_task(_ingest_background, story_uuid, chapters_slice, next_index)
+    return {
+        "status": "success",
+        "batch_count": batch_count,
+        "starting_at": next_index,
+        "remaining_after": remaining - batch_count,
+        "message": f"Processing {batch_count} more chapters in background."
+    }
+
+
 @router.post("/import_url")
 def import_royalroad(payload: ImportRequest, background_tasks: BackgroundTasks):
     logger.info(f"Request to import Royal Road novel from: {payload.url}")
@@ -134,21 +249,35 @@ def import_royalroad(payload: ImportRequest, background_tasks: BackgroundTasks):
             if not chapters:
                 logger.error(f"No chapters found at URL: {payload.url}")
                 raise HTTPException(status_code=400, detail="No chapters found at URL")
-                
-            story_name = chapters[0]['title'].split(" - ")[0] if " - " in chapters[0]['title'] else "Royal Road Novel"
+            
+            # Use the real fiction title from the page; fallback to chapter-title heuristic
+            raw_name = metadata.get("title", "").strip()
+            if not raw_name:
+                raw_name = chapters[0]['title'].split(" - ")[0] if " - " in chapters[0]['title'] else "Royal Road Novel"
+            
+            story_name = _deduplicate_name(raw_name)
             new_uuid = StoryManager.create_story(story_name)
             logger.info(f"Created new story '{story_name}' with UUID {new_uuid}")
+            
+            initial_batch = min(_DEFAULT_INITIAL_BATCH, len(chapters))
             
             save_index_state(new_uuid, {
                 "source_url": payload.url,
                 "chapters": chapters,
                 "metadata": metadata,
                 "last_ingested_index": -1,
-                "status": "processing" # Explicitly define status before background job starts
+                "status": "processing"
             })
             
-            background_tasks.add_task(ingest_background, new_uuid, chapters)
-            return {"status": "success", "story_uuid": new_uuid, "message": "Import started in background processing the first 3 chapters."}
+            background_tasks.add_task(_ingest_background, new_uuid, chapters[:initial_batch], 0)
+            return {
+                "status": "success",
+                "story_uuid": new_uuid,
+                "name": story_name,
+                "total_available": len(chapters),
+                "initial_batch": initial_batch,
+                "message": f"Import started — processing the first {initial_batch} of {len(chapters)} chapters."
+            }
         except Exception as e:
             logger.error(f"Failed to import from URL {payload.url}: {e}")
             raise HTTPException(status_code=500, detail=str(e))

@@ -8,6 +8,8 @@ from app.api import chapters, appearances, characters
 from app.api import narration
 from app.api import audio
 from app.api import stories
+from app.api import story_detail
+from app.api import rag
 from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
 
@@ -52,6 +54,8 @@ app.include_router(appearances.router, prefix="/api")
 app.include_router(chapters.router, prefix="/api")
 app.include_router(characters.router, prefix="/api")
 app.include_router(stories.router, prefix="/api")
+app.include_router(story_detail.router, prefix="/api")
+app.include_router(rag.router, prefix="/api")
 
 @app.get("/api/health")
 def health_check():
