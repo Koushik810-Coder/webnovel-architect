@@ -96,6 +96,16 @@ def render_location_wiki(location: LocationWiki) -> str:
 
 def build_location_page(story_uuid: str, location_id: str, graph_provider) -> Optional[LocationWiki]:
     """Aggregates events at a location and uses LLM to generate a wiki page."""
+    import datetime
+    from app.services.wiki_versioning import compute_node_hash
+    
+    existing = load_location_wiki(story_uuid, location_id)
+    current_hash = compute_node_hash(graph_provider.graph, location_id)
+    
+    if existing and existing.graph_snapshot_id == current_hash and current_hash != "":
+        logger.info(f"Skipping generation for location '{location_id}' — graph state unchanged.")
+        return existing
+
     # 1. Gather context from graph
     events = []
     characters = set()
@@ -153,6 +163,9 @@ Return a valid JSON object matching this schema:
 
     wiki = LocationWiki(
         location_id=location_id,
+        version=(existing.version + 1) if existing else 1,
+        generated_at=datetime.datetime.utcnow().isoformat(),
+        graph_snapshot_id=current_hash,
         display_name=location_id.replace("_", " ").title(),
         description=result.get("description", "A location in the story."),
         region=result.get("region"),

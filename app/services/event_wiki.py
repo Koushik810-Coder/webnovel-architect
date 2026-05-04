@@ -116,10 +116,20 @@ def render_event_wiki(event: EventWiki) -> str:
 
 def build_event_page(story_uuid: str, event_id: str, graph_provider) -> Optional[EventWiki]:
     """Generates an EventWiki from graph data using an LLM."""
+    import datetime
+    from app.services.wiki_versioning import compute_node_hash
+
     if not graph_provider.graph.has_node(event_id) or graph_provider.graph.nodes[event_id].get("type") != "event":
         logger.warning(f"Event '{event_id}' not found in graph.")
         return None
         
+    existing = load_event_wiki(story_uuid, event_id)
+    current_hash = compute_node_hash(graph_provider.graph, event_id)
+    
+    if existing and existing.graph_snapshot_id == current_hash and current_hash != "":
+        logger.info(f"Skipping generation for event '{event_id}' — graph state unchanged.")
+        return existing
+
     event_data = graph_provider.graph.nodes[event_id]
     
     # Gather participants and roles from edges
@@ -177,6 +187,9 @@ Return a valid JSON object matching this schema. Preserve the participant roles 
 
     wiki = EventWiki(
         event_id=event_id,
+        version=(existing.version + 1) if existing else 1,
+        generated_at=datetime.datetime.utcnow().isoformat(),
+        graph_snapshot_id=current_hash,
         display_name=result.get("display_name", event_id),
         summary=result.get("summary", event_data.get("description", "")),
         cause=result.get("cause"),

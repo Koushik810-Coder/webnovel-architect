@@ -9,6 +9,11 @@ class ArcWiki(BaseModel):
     participating characters, and emotional/thematic evolution — per 2.5 spec.
     """
     arc_id: str
+    
+    version: int = 1
+    generated_at: Optional[str] = None
+    graph_snapshot_id: Optional[str] = None
+    
     display_name: str
     theme: str
     summary: str

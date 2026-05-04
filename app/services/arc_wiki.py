@@ -112,10 +112,20 @@ def render_arc_wiki(arc: ArcWiki) -> str:
 
 def build_arc_page(story_uuid: str, arc_id: str, graph_provider) -> Optional[ArcWiki]:
     """Generates an ArcWiki from graph data using an LLM."""
+    import datetime
+    from app.services.wiki_versioning import compute_node_hash
+
     if not graph_provider.graph.has_node(arc_id) or graph_provider.graph.nodes[arc_id].get("type") != "arc":
         logger.warning(f"Arc '{arc_id}' not found in graph.")
         return None
         
+    existing = load_arc_wiki(story_uuid, arc_id)
+    current_hash = compute_node_hash(graph_provider.graph, arc_id)
+    
+    if existing and existing.graph_snapshot_id == current_hash and current_hash != "":
+        logger.info(f"Skipping generation for arc '{arc_id}' — graph state unchanged.")
+        return existing
+
     arc_data = graph_provider.graph.nodes[arc_id]
     event_ids = arc_data.get("event_ids", [])
     
@@ -161,6 +171,9 @@ Return a valid JSON object matching this schema. Be analytical about the narrati
 
     wiki = ArcWiki(
         arc_id=arc_id,
+        version=(existing.version + 1) if existing else 1,
+        generated_at=datetime.datetime.utcnow().isoformat(),
+        graph_snapshot_id=current_hash,
         display_name=arc_data.get("label", arc_id.replace("_", " ").title()),
         theme=result.get("theme", "Unknown Theme"),
         summary=result.get("summary", "An arc in the story."),

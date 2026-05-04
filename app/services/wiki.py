@@ -668,11 +668,22 @@ def enrich_wiki_from_rag(
     Time-CoT RAG (rather than the per-chapter extractor).
     """
     from app.services.rag import query_character_profile
+    from app.services.wiki_versioning import compute_node_hash
+    from adapters.graph_adapter import get_graph_engine
+    import datetime
 
     existing = load_character_wiki_json(story_uuid, character_id)
     if existing is None:
         logger.warning(f"enrich_wiki_from_rag: no existing wiki for '{character_id}' — skipping.")
         return None
+
+    # Check cache via graph snapshot hash
+    graph_provider = get_graph_engine(story_uuid)
+    current_hash = compute_node_hash(graph_provider.graph, character_id)
+    
+    if existing.graph_snapshot_id == current_hash and current_hash != "":
+        logger.info(f"Skipping RAG enrichment for '{character_id}' — graph neighborhood unchanged.")
+        return existing
 
     character_name = existing.display_name
     logger.info(f"RAG-enriching wiki for '{character_name}' ({character_id})…")
@@ -701,6 +712,12 @@ def enrich_wiki_from_rag(
             return None
 
     enriched = apply_profile_updates(existing, profile_data)
+    
+    # Update versioning meta
+    enriched.version = existing.version + 1
+    enriched.graph_snapshot_id = current_hash
+    enriched.generated_at = datetime.datetime.utcnow().isoformat()
+    
     save_character_wiki(story_uuid, enriched)
     logger.info(f"Wiki enriched and saved for '{character_name}'.")
     return enriched

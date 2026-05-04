@@ -8,6 +8,10 @@ class CharacterWiki(BaseModel):
     Contains "Lore" (Appearance, Role, Backstory).
     """
     character_id: str
+    
+    version: int = 1
+    generated_at: Optional[str] = None
+    graph_snapshot_id: Optional[str] = None
 
     display_name: str
     aliases: List[str] = []
