@@ -813,9 +813,14 @@ elif page == "Story Q&A":
     st.header("Story Q&A (Time-CoT RAG)")
     st.markdown("Ask temporal and contextual questions about the story. The engine uses DyG-RAG principles (Chronological Dynamic Event Units) to reason through the character timelines.")
     
-    # RAG Filtering Controls
+    # Initialize chat history
+    chat_key = f"chat_history_{active_story_uuid}"
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
+        
+    # Add a clear button to the expander
     with st.expander("🔍 Filtering & Spoiler Controls"):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns([2, 2, 1])
         with col1:
             qa_mode_sel = st.selectbox("Answer Perspective", ["Full Knowledge (Spoilers)", "Reader Safe (No Spoilers)"], index=0)
             qa_mode = "god" if "Full" in qa_mode_sel else "reader"
@@ -823,26 +828,49 @@ elif page == "Story Q&A":
             from app.services.ingest import load_runtime
             chapter_counter, _ = load_runtime(active_story_uuid)
             qa_reader_chapter = st.number_input("Assume Reader at Chapter", min_value=0, max_value=chapter_counter if chapter_counter > 0 else 999, value=chapter_counter if chapter_counter > 0 else 0, key="qa_chapter")
+        with col3:
+            st.write("") # spacing
+            st.write("")
+            if st.button("🗑️ Clear Chat"):
+                st.session_state[chat_key] = []
+                st.rerun()
 
-    with st.form("qna_form"):
-        query = st.text_input("Ask a question about the story:", placeholder="What happened to Lucian after he fought the troll?")
-        submit = st.form_submit_button("Ask")
-        
-        if submit and query:
+    # Display chat messages from history
+    for message in st.session_state[chat_key]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Accept user input
+    if prompt := st.chat_input("Ask a question about the story..."):
+        # Display user message in chat message container
+        with st.chat_message("user"):
+            st.markdown(prompt)
+            
+        # Add user message to chat history
+        st.session_state[chat_key].append({"role": "user", "content": prompt})
+
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
             with st.spinner("Traversing the event graph and reasoning through the timeline..."):
                 from app.services.rag import query_story
                 try:
+                    # Pass history EXCEPT the very last message (which is the current query)
+                    history_for_rag = st.session_state[chat_key][:-1]
+                    
                     answer = query_story(
                         active_story_uuid, 
-                        query, 
+                        prompt, 
                         mode=qa_mode, 
-                        reader_chapter=qa_reader_chapter
+                        reader_chapter=qa_reader_chapter,
+                        chat_history=history_for_rag
                     )
-                    st.success("Analysis Complete")
-                    st.markdown("### Answer")
-                    st.write(answer)
+                    message_placeholder.markdown(answer)
+                    st.session_state[chat_key].append({"role": "assistant", "content": answer})
                 except Exception as e:
                     st.error(f"Failed to generate answer: {e}")
+                    # Remove the failed user prompt so it doesn't get stuck
+                    st.session_state[chat_key].pop()
+
 
 elif page == "Evaluation":
     import json

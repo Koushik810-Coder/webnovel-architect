@@ -15,7 +15,8 @@ def query_story(
     model: str = None,
     mode: str = "god",
     reader_chapter: int = 999,
-    pov_character_id: Optional[str] = None
+    pov_character_id: Optional[str] = None,
+    chat_history: Optional[List[dict]] = None
 ) -> str:
 
     """
@@ -28,7 +29,14 @@ def query_story(
     graph = get_graph_engine(story_uuid)
 
     # 1. Intent Extraction via LLM
-    intent_prompt = f"Extract the core entities from this query:\n'{query}'\nRespond ONLY with a JSON object containing arrays for 'characters', 'locations', and 'concepts'."
+    # Pass chat history context so it can resolve pronouns or implicit references like "what about his sword?"
+    history_context = ""
+    if chat_history:
+        # Just grab the last 2 interactions to give the LLM some context
+        recent = chat_history[-4:]
+        history_context = "Recent conversation context:\n" + "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent]) + "\n\n"
+        
+    intent_prompt = f"{history_context}Extract the core entities from this new query:\n'{query}'\nRespond ONLY with a JSON object containing arrays for 'characters', 'locations', and 'concepts'."
     try:
         intent = analyze_text_json(intent_prompt, model=model) or {}
     except Exception:
@@ -55,6 +63,12 @@ def query_story(
             if re.search(pattern, query_lower):
                 query_entities.add(n)
                 break
+                
+    # Also attempt to extract entities from intent if the deterministic check missed them
+    for char_name in intent.get("characters", []):
+        for n, d in char_nodes:
+            if char_name.lower() in n.lower() or (d.get("display_name") and char_name.lower() in d["display_name"].lower()):
+                query_entities.add(n)
 
     # 2. Graph Retrieval
     # Pre-calculate the whitelist of visible events for the current mode/context
@@ -170,7 +184,7 @@ Reason through the context chronologically and then provide a clear, narrative a
 
     # 5. LLM Generation
     # analyze_text() handles its own Groq fallback internally — no need to repeat it here.
-    response = analyze_text(prompt, model=model)
+    response = analyze_text(prompt, model=model, chat_history=chat_history)
 
     # 6. Optional Spoiler Rewrite Pass
     if mode == "reader" and response:

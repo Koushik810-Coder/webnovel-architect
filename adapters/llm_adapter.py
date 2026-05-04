@@ -181,7 +181,7 @@ def _try_model(
     return _run_with_retry(model, messages, max_attempts=max_attempts, extra_kwargs=kw, content_transform=content_transform)
 
 
-def analyze_text(text: str, model: str = None, temperature: float = 0.1) -> str:
+def analyze_text(text: str, model: str = None, temperature: float = 0.1, chat_history: Optional[list] = None) -> str:
     """
     Analyzes text using the specified LLM model via LiteLLM.
     Uses a low temperature (default 0.1) for consistent prose generation.
@@ -190,7 +190,12 @@ def analyze_text(text: str, model: str = None, temperature: float = 0.1) -> str:
     """
     if not model:
         model = get_llm_model()
-    messages = [{"role": "user", "content": text}]
+        
+    messages = []
+    if chat_history:
+        messages.extend(chat_history)
+        
+    messages.append({"role": "user", "content": text})
     extra_kwargs = {"temperature": temperature}
 
     # Tier 1: Primary model (NVIDIA NIM)

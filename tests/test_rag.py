@@ -84,7 +84,7 @@ def test_rag_events_sorted_chronologically(populated_graph, story_uuid):
     """
     captured_prompts = []
 
-    def capture_analyze(prompt, model=None):
+    def capture_analyze(prompt, model=None, **kwargs):
         captured_prompts.append(prompt)
         return "Mocked answer."
 
@@ -135,7 +135,7 @@ def test_rag_delegates_fallback_to_adapter(populated_graph, story_uuid):
     """
     call_log = []
 
-    def mock_analyze(prompt, model=None):
+    def mock_analyze(prompt, model=None, **kwargs):
         call_log.append(model)
         return "Mocked answer."
 
