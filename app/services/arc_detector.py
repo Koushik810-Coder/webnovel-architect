@@ -1,5 +1,8 @@
 from adapters.graph_adapter import get_graph_engine
 from adapters.llm_adapter import analyze_text_json
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 def _call_llm_for_arcs(events_chunk):
     # This is a real implementation using analyze_text_json
@@ -13,12 +16,16 @@ def _call_llm_for_arcs(events_chunk):
     
     try:
         result = analyze_text_json(prompt)
-        if isinstance(result, dict) and "arcs" in result:
-            return result["arcs"]
         if isinstance(result, list):
             return result
+        if isinstance(result, dict):
+            # Check common keys LLMs use when they decide to wrap the array
+            for key in ["arcs", "narrative_arcs", "story_arcs", "events"]:
+                if key in result and isinstance(result[key], list):
+                    return result[key]
         return []
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error parsing arcs from LLM: {e}")
         return []
 
 def detect_arcs(story_uuid: str, every_n: int = 5):

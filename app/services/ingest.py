@@ -17,6 +17,9 @@ from app.services.wiki import (
     apply_profile_updates,
 )
 from app.services.arc_detector import detect_arcs
+from app.services.location_wiki import build_location_page
+from app.services.event_wiki import build_event_page
+from app.services.arc_wiki import build_arc_page
 from app.core.graduation import check_graduation_status
 from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
@@ -227,6 +230,13 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         Chapter: The fully processed and persisted Chapter object.
     """
     chapter_counter, runtime_db = load_runtime(story_uuid)
+    
+    # Check for cancellation flag (shared with batch ingestion)
+    if os.path.exists(_CANCEL_FLAG):
+        with open(_CANCEL_FLAG, "r") as f:
+            if f.read().strip() == "cancel":
+                logger.warning(f"Ingestion of '{title}' cancelled by user flag.")
+                return None
     
     logger.info(f"Ingesting chapter: '{title}' for story {story_uuid} using extractor '{extractor}'")
     
@@ -644,11 +654,41 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     graph.save_graph()
     save_runtime(story_uuid, chapter_counter, runtime_db)
     
+    # ── Generate Location & Event wiki pages from graph data ──────────────
+    # Collect unique locations from this chapter's events
+    _chapter_locations = set()
+    for _evt in events:
+        _loc = _evt.get("location")
+        if _loc and _loc != "Unknown":
+            _chapter_locations.add(_loc)
+
+    for _loc_id in _chapter_locations:
+        try:
+            build_location_page(story_uuid, _loc_id, graph)
+        except Exception as e:
+            logger.warning(f"Location wiki generation failed for '{_loc_id}': {e}")
+
+    # Build event wiki pages for this chapter's events
+    for _evt_id in event_ids if events else []:
+        try:
+            build_event_page(story_uuid, _evt_id, graph)
+        except Exception as e:
+            logger.warning(f"Event wiki generation failed for '{_evt_id}': {e}")
+
     # Trigger batched arc detection every 5 chapters
     if chapter_counter > 0 and chapter_counter % 5 == 0:
         logger.info(f"Triggering batched arc detection at chapter {chapter_counter}")
         try:
             detect_arcs(story_uuid, every_n=5)
+            # Re-fetch graph to get arc nodes added by detect_arcs
+            # We iterate over all arc nodes to ensure wiki pages exist for all of them.
+            # build_arc_page has a hash check to skip redundant LLM calls.
+            for _node, _ndata in graph.graph.nodes(data=True):
+                if _ndata.get("type") == "arc":
+                    try:
+                        build_arc_page(story_uuid, _node, graph)
+                    except Exception as e:
+                        logger.warning(f"Arc wiki generation failed for '{_node}': {e}")
         except Exception as e:
             logger.error(f"Arc detection failed: {e}")
 
@@ -680,48 +720,56 @@ def ingest_multiple_chapters(
         os.remove(_CANCEL_FLAG)
         logger.info("Cleared old cancel_ingestion.flag")
     
-    for i, chap_data in enumerate(chapters):
-        if os.path.exists(_CANCEL_FLAG):
-            logger.info("Batch ingestion cancelled by user.")
-            break
+    try:
+        for i, chap_data in enumerate(chapters):
+            if os.path.exists(_CANCEL_FLAG):
+                logger.info("Batch ingestion cancelled by user.")
+                break
+                
+            title = chap_data.get("title", f"Chapter {i+1}")
+            text = chap_data.get("text")
             
-        title = chap_data.get("title", f"Chapter {i+1}")
-        text = chap_data.get("text")
-        
-        if not text:
-            # If text is missing, we might need to scrape it here if a URL is present
-            url = chap_data.get("url")
-            if url:
-                if _scraper is None:
-                    from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
-                    _scraper = RoyalRoadScraper()
-                try:
-                    scraped = _scraper.scrape_chapter(url)
-                    text = scraped.get("text")
-                except Exception as e:
-                    logger.error(f"Error scraping {url}: {e}")
+            if not text:
+                # If text is missing, we might need to scrape it here if a URL is present
+                url = chap_data.get("url")
+                if url:
+                    if _scraper is None:
+                        from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                        _scraper = RoyalRoadScraper()
+                    try:
+                        scraped = _scraper.scrape_chapter(url)
+                        text = scraped.get("text")
+                    except Exception as e:
+                        logger.error(f"Error scraping {url}: {e}")
+                        if progress_callback is not None:
+                            progress_callback(i + 1, total)
+                        continue
+                else:
                     if progress_callback is not None:
                         progress_callback(i + 1, total)
                     continue
-            else:
-                if progress_callback is not None:
-                    progress_callback(i + 1, total)
-                continue
-                
-        try:
-            chapter = ingest_chapter(story_uuid, title, text, extractor, decay_rate)
-            ingested_chapters.append(chapter)
-        except Exception as e:
-            # Stop the batch at the failed chapter so last_ingested_index stays
-            # at N-1 (already persisted by progress_callback).  The next
-            # user-triggered batch will start from this chapter automatically.
-            err_msg = str(e)
-            logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {err_msg}")
-            with open(_CANCEL_FLAG, "w") as f:
-                f.write(f"error: {err_msg}")
-            break
-        
-        if progress_callback is not None:
-            progress_callback(i + 1, total)
+                    
+            try:
+                chapter = ingest_chapter(story_uuid, title, text, extractor, decay_rate)
+                ingested_chapters.append(chapter)
+            except Exception as e:
+                # Stop the batch at the failed chapter so last_ingested_index stays
+                # at N-1 (already persisted by progress_callback).  The next
+                # user-triggered batch will start from this chapter automatically.
+                err_msg = str(e)
+                logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {err_msg}")
+                with open(_CANCEL_FLAG, "w") as f:
+                    f.write(f"error: {err_msg}")
+                break
             
+            if progress_callback is not None:
+                progress_callback(i + 1, total)
+    finally:
+        if os.path.exists(_CANCEL_FLAG):
+            # Only remove if it's a simple 'cancel' to avoid clearing error flags prematurely
+            with open(_CANCEL_FLAG, "r") as f:
+                if f.read().strip() == "cancel":
+                    os.remove(_CANCEL_FLAG)
+                    logger.info("Cleared cancel_ingestion.flag on exit")
+    
     return ingested_chapters

@@ -143,13 +143,25 @@ class GraphProvider:
 
     def add_knowledge_edge(self, char_id: str, event_id: str, edge_type: str = "knows"):
         """Explicitly tracks character knowledge or ignorance of an event.
-        
+
+        NOTE: This is a DiGraph — calling add_edge on an existing edge OVERWRITES
+        all its attributes. We must never clobber a participant edge (which carries
+        chapter_id, weight, role) with a bare knowledge edge.  If the char→event
+        edge already exists and has a chapter_id (i.e. it's a proper participant
+        edge), we skip adding the knowledge edge to avoid data loss.
+
         Args:
             char_id: Normalized character ID.
             event_id: The event node ID.
             edge_type: "knows" | "unaware_of"
         """
         if self.graph.has_node(char_id) and self.graph.has_node(event_id):
+            # Guard: don't overwrite a rich participant edge with a bare knowledge edge.
+            if self.graph.has_edge(char_id, event_id):
+                existing = self.graph[char_id][event_id]
+                if "chapter_id" in existing:
+                    # Already a participant edge — preserve it, skip the knowledge edge.
+                    return
             self.graph.add_edge(char_id, event_id, relation=edge_type)
 
 

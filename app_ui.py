@@ -419,6 +419,7 @@ elif page == "Ingestion Engine":
                         scraped_data = scraper.scrape_chapter(index_chapters[selected_idx_url]['url'])
                         st.session_state['fetched_title'] = scraped_data['title']
                         st.session_state['fetched_text'] = scraped_data['text']
+                        st.session_state['previewed_index'] = selected_idx_url
                         # Use rerun to immediately show the text in the text_area below
                         st.rerun()
                     except Exception as e:
@@ -523,6 +524,20 @@ elif page == "Ingestion Engine":
                 from app.services.ingest import ingest_chapter
                 try:
                     chapter = ingest_chapter(active_story_uuid, chapter_title, chapter_text, extractor=extractor_method, decay_rate=decay_rate)
+                    
+                    # Advance the tracked index if we just processed a previewed chapter
+                    if 'previewed_index' in st.session_state:
+                        prev_idx = st.session_state['previewed_index']
+                        current_last = st.session_state.get('last_ingested_index', -1)
+                        if prev_idx > current_last:
+                            st.session_state['last_ingested_index'] = prev_idx
+                            from app.services.ingest import load_index_state, save_index_state
+                            saved_state = load_index_state(active_story_uuid) or {}
+                            saved_state["last_ingested_index"] = prev_idx
+                            save_index_state(active_story_uuid, saved_state)
+                        # Clear previewed index so we don't accidentally advance again later
+                        del st.session_state['previewed_index']
+                        
                     st.success(f"Successfully processed {chapter_title}!")
                     
                     # Display Extracted Events
