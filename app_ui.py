@@ -491,7 +491,7 @@ elif page == "Wiki Memory":
         else:
             pov_character_id = None
 
-    wiki_tab1, wiki_tab2, wiki_tab3, wiki_tab4 = st.tabs(["Characters", "Locations", "Events", "Arcs"])
+    wiki_tab1, wiki_tab2, wiki_tab3, wiki_tab4, wiki_tab5 = st.tabs(["Characters", "Locations", "Events", "Arcs", "Dynamic Query"])
 
     with wiki_tab1:
         files = []
@@ -581,6 +581,40 @@ elif page == "Wiki Memory":
                 st.markdown(f.read(), unsafe_allow_html=True)
         else:
             st.info("No narrative arc entries found. Arcs are detected in batches every 5 chapters.")
+
+    with wiki_tab5:
+        st.subheader("Graph Query Language")
+        st.markdown("Use natural language to project dynamic, filtered wiki pages based on complex graph queries.")
+        
+        query_examples = [
+            "Show me Alice before the betrayal",
+            "Show Ravi from Alice's perspective",
+            "Show all hidden knowledge events",
+            "What is the full truth of this arc?"
+        ]
+        
+        with st.form("dynamic_query_form"):
+            user_query = st.text_input("Enter your graph query:", placeholder="e.g. Show me the events at the academy before the invasion.")
+            st.caption("Examples: " + ", ".join([f"*{ex}*" for ex in query_examples]))
+            
+            submit_query = st.form_submit_button("Generate Projection", type="primary")
+            
+            if submit_query and user_query:
+                with st.spinner("Parsing intent, filtering graph nodes, and generating projection..."):
+                    from app.services.rag import query_story_with_filter
+                    try:
+                        projection = query_story_with_filter(
+                            active_story_uuid, 
+                            user_query, 
+                            mode=mode, 
+                            reader_chapter=reader_chapter,
+                            pov_character_id=pov_character_id
+                        )
+                        st.success("Projection generated!")
+                        st.markdown("---")
+                        st.markdown(projection)
+                    except Exception as e:
+                        st.error(f"Failed to process query: {e}")
     
 elif page == "Audio Hub":
     st.header("Audio Hub")

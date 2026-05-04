@@ -154,7 +154,45 @@ def test_rag_delegates_fallback_to_adapter(populated_graph, story_uuid):
     assert result == "Mocked answer."
 
 
-# ── TTS Factory ───────────────────────────────────────────────────────────────
+# ── Wiki Query Language (Phase 2.8) ───────────────────────────────────────────
+
+def test_query_story_with_filter(populated_graph, story_uuid):
+    """
+    Test the Wiki Query Language intent parser and filtering.
+    """
+    call_log = []
+
+    def mock_analyze(prompt, model=None, **kwargs):
+        call_log.append(prompt)
+        return "Mocked projection."
+
+    intent_payload = {
+        "target_characters": ["Zorian"],
+        "target_locations": [],
+        "target_arcs": [],
+        "time_bound": {
+            "operator": "before",
+            "event_concept": "Kirielle is endangered"
+        },
+        "pov_character": None,
+        "hidden_knowledge_only": False
+    }
+
+    with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
+        with patch("app.services.wiki_filter.get_graph_engine", return_value=populated_graph):
+            with patch("adapters.llm_adapter.analyze_text_json", return_value=intent_payload):
+                with patch("adapters.llm_adapter.analyze_text", side_effect=mock_analyze):
+                    from app.services.rag import query_story_with_filter
+                    result = query_story_with_filter(story_uuid, "Show me Zorian before Kirielle is endangered")
+
+    assert result == "Mocked projection."
+    assert len(call_log) == 1
+    prompt = call_log[0]
+    
+    # We expect Chapter 1 and Chapter 2, but NOT Chapter 3 (because it's "before" the pivot event)
+    assert "Zorian begins looping" in prompt
+    assert "Zorian meets Kirielle" in prompt
+    assert "[Ch 3]" not in prompt
 
 class TestTTSFactory:
     def test_edge_factory_returns_edge_adapter(self):

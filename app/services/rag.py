@@ -319,3 +319,176 @@ Respond ONLY with a valid JSON object matching this exact schema:
     except Exception as e:
         logger.error(f"RAG enrichment failed for '{character_name}': {e}")
         return {}
+
+def query_story_with_filter(
+    story_uuid: str, 
+    nl_query: str, 
+    model: str = None,
+    mode: str = "god",
+    reader_chapter: int = 999,
+    pov_character_id: Optional[str] = None
+) -> str:
+    """
+    Translates a natural language query into graph filter operations,
+    retrieves the matching events, and generates a dynamic wiki projection.
+    (Phase 2.8: Wiki as a Query Language)
+    """
+    if model is None:
+        model = get_llm_model()
+
+    from adapters.llm_adapter import analyze_text_json, analyze_text
+    graph = get_graph_engine(story_uuid)
+
+    # 1. Intent Parsing
+    intent_prompt = f"""
+You are a graph query parser. The user wants a specific slice of the story's history.
+Query: "{nl_query}"
+
+Parse this query into the following JSON schema:
+{{
+    "target_characters": ["Name1", "Name2"], // Characters explicitly asked about
+    "target_locations": ["Location"], // Locations explicitly asked about
+    "target_arcs": ["Arc Name"], // Arcs explicitly asked about
+    "time_bound": {{
+        "operator": "before" | "after" | "during" | null,
+        "event_concept": "short description of the pivot event (e.g. 'the betrayal')" | null
+    }},
+    "pov_character": "Name" | null, // If the user asks for someone's specific perspective
+    "hidden_knowledge_only": true | false // If they ask for secrets, hidden truth, or non-canonical events
+}}
+Respond ONLY with valid JSON.
+"""
+    try:
+        intent = analyze_text_json(intent_prompt, model=model) or {}
+    except Exception:
+        intent = {}
+
+    target_characters = [c.lower() for c in intent.get("target_characters", [])]
+    target_locations = [l.lower() for l in intent.get("target_locations", [])]
+    target_arcs = [a.lower() for a in intent.get("target_arcs", [])]
+    time_bound = intent.get("time_bound", {})
+    pov_char_intent = intent.get("pov_character")
+    hidden_only = intent.get("hidden_knowledge_only", False)
+
+    # Override POV if the query explicitly requested a perspective
+    effective_pov = pov_char_intent.lower() if pov_char_intent else pov_character_id
+    
+    # We must match the effective_pov to a real node ID if it's a string
+    effective_pov_id = None
+    if effective_pov:
+        for n, d in graph.graph.nodes(data=True):
+            if d.get("type") == "character":
+                names = [n.lower()]
+                if "display_name" in d: names.append(d["display_name"].lower())
+                if effective_pov in names or effective_pov in n.lower():
+                    effective_pov_id = n
+                    break
+        if not effective_pov_id:
+            effective_pov_id = pov_character_id # fallback
+
+    visible_event_ids = set(get_filtered_events(story_uuid, mode, reader_chapter, effective_pov_id))
+    
+    all_events = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "event" and n in visible_event_ids]
+    
+    # 2. Find Time Pivot
+    pivot_rank = None
+    if time_bound and time_bound.get("operator") and time_bound.get("event_concept"):
+        concept = time_bound["event_concept"].lower()
+        # Simple search for the pivot event
+        best_match = None
+        for n, d in all_events:
+            desc = d.get("description", "").lower()
+            title = d.get("display_name", n).lower()
+            if concept in desc or concept in title:
+                best_match = d
+                break
+        if best_match:
+            pivot_rank = best_match.get("story_time_rank", best_match.get("chapter_id", 0))
+
+    # 3. Filter Events
+    filtered_events = []
+    
+    char_nodes_lower = {n: [n.lower(), d.get("display_name", "").lower()] for n, d in graph.graph.nodes(data=True) if d.get("type") == "character"}
+    
+    for event_id, event_data in all_events:
+        # Check hidden only
+        if hidden_only:
+            if event_data.get("is_canonical", True) and event_data.get("spoiler_level", 0) == 0:
+                continue
+                
+        # Check time bounds
+        if pivot_rank is not None:
+            ev_rank = event_data.get("story_time_rank", event_data.get("chapter_id", 0))
+            op = time_bound["operator"]
+            if op == "before" and ev_rank >= pivot_rank: continue
+            if op == "after" and ev_rank <= pivot_rank: continue
+            if op == "during" and ev_rank != pivot_rank: continue
+
+        # Check entity inclusion (Characters, Locations, Arcs)
+        keep = False
+        
+        # If no specific targets, we keep it (unless it was filtered out by time/hidden)
+        if not target_characters and not target_locations and not target_arcs:
+            keep = True
+        else:
+            # Characters
+            if target_characters:
+                involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
+                involved_lower = []
+                for inv in involved:
+                    involved_lower.extend(char_nodes_lower.get(inv, [inv.lower()]))
+                
+                for tc in target_characters:
+                    if any(tc in il for il in involved_lower):
+                        keep = True
+                        break
+            
+            # Locations
+            if not keep and target_locations:
+                loc = event_data.get("location", "").lower()
+                for tl in target_locations:
+                    if tl in loc:
+                        keep = True
+                        break
+            
+            # Arcs (check if event is in the specified arc)
+            if not keep and target_arcs:
+                for u, v, edata in graph.graph.in_edges(event_id, data=True):
+                    if edata.get("relation") == "contains" and graph.graph.nodes[u].get("type") == "arc":
+                        arc_name = graph.graph.nodes[u].get("label", u).lower()
+                        for ta in target_arcs:
+                            if ta in arc_name:
+                                keep = True
+                                break
+
+        if keep:
+            involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
+            filtered_events.append({
+                "chapter_id": event_data.get("chapter_id", 0),
+                "description": event_data.get("description", ""),
+                "location": event_data.get("location", "Unknown"),
+                "participants": [p.replace("_", " ").title() for p in involved]
+            })
+
+    if not filtered_events:
+        return f"No events matched the query criteria: '{nl_query}'. The events might be hidden by your current Reader/POV perspective, or they haven't occurred yet."
+
+    # 4. Generate Projection
+    filtered_events.sort(key=lambda x: x["chapter_id"])
+    
+    timeline_str = ""
+    for ev in filtered_events:
+        timeline_str += f"- [Ch {ev['chapter_id']}] At {ev['location']} with {', '.join(ev['participants'])}: {ev['description']}\n"
+
+    prompt = f"""
+You are the loremaster of a serialized web novel.
+The user submitted a complex query: "{nl_query}"
+
+Based on this query, the system filtered the knowledge graph and retrieved the following specific events:
+{timeline_str}
+
+Write a comprehensive, engaging Wiki Projection that answers their query directly using ONLY the retrieved events.
+Format it beautifully in Markdown with appropriate headings, bold text, and bullet points if necessary.
+"""
+    result = analyze_text(prompt, model=model)
+    return result
