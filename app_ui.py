@@ -486,7 +486,7 @@ elif page == "Wiki Memory":
     
     with col_pov:
         if mode == "pov":
-            pov_options = [f.replace('.md', '') for f in os.listdir(wiki_dir) if f.endswith('.md')]
+            pov_options = [f.replace('.md', '') for f in files]
             pov_character_id = st.selectbox("POV Character", pov_options) if pov_options else None
         else:
             pov_character_id = None
@@ -504,6 +504,7 @@ elif page == "Wiki Memory":
                 content = f.read()
 
             col1, col2, col3 = st.columns([6, 2, 2])
+
             with col2:
                 from app.services.wiki import enrich_wiki_from_rag
                 if st.button("✨ Improve with RAG", use_container_width=True):
@@ -523,19 +524,22 @@ elif page == "Wiki Memory":
                         except Exception as e:
                             st.error(f"Failed to enrich wiki: {e}")
 
-                with col3:
-                    st.download_button(
-                        label="📥 Export Wiki Entry",
-                        data=content,
-                        file_name=selected_file,
-                        mime="text/markdown",
-                        use_container_width=True
-                    )
+            with col3:
+                st.download_button(
+                    label="📥 Export Wiki Entry",
+                    data=content,
+                    file_name=selected_file,
+                    mime="text/markdown",
+                    use_container_width=True
+                )
 
-                st.markdown("---")
+            st.markdown("---")
+            with col1:
                 st.markdown(content, unsafe_allow_html=True)
+    elif not os.path.exists(wiki_dir):
+        st.warning(f"Wiki directory not found. Process some chapters first to generate character wikis.")
     else:
-        st.warning(f"Wiki directory '{wiki_dir}' does not exist.")
+        st.info("No wiki entries found yet. Ingest some chapters to populate the wiki.")
     
 elif page == "Audio Hub":
     st.header("Audio Hub")
