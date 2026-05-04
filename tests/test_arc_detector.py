@@ -71,7 +71,7 @@ class TestArcDetector:
             return []
             
         monkeypatch.setattr(ingest, "detect_arcs", fake_detect_arcs, raising=False)
-        monkeypatch.setattr(ingest, "extract_chapter_intelligence_llm", lambda text: {"active_character_names": ["Hero"], "events": []})
+        monkeypatch.setattr(ingest, "extract_chapter_intelligence_llm", lambda text, **kwargs: {"active_character_names": ["Hero"], "events": []})
         monkeypatch.setattr(ingest, "update_character_profile", lambda *args: {})
         monkeypatch.setattr(ingest, "batch_update_character_profiles", lambda *args: {})
         

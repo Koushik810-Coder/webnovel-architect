@@ -4,9 +4,18 @@ import re
 
 from app.core.logger import get_logger
 from app.core.config import get_llm_model
-logger = get_logger(__name__)
+from app.services.wiki_filter import get_filtered_events, rewrite_for_spoiler_free
+from typing import Optional, List
 
-def query_story(story_uuid: str, query: str, model: str = None) -> str:
+def query_story(
+    story_uuid: str, 
+    query: str, 
+    model: str = None,
+    mode: str = "god",
+    reader_chapter: int = 999,
+    pov_character_id: Optional[str] = None
+) -> str:
+
     """
     RAG over the story graph using Time-CoT (Time Chain-of-Thought).
     Retrieves Dynamic Event Units (DEUs) from the graph and prompts the LLM chronologically.
@@ -46,6 +55,9 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
                 break
 
     # 2. Graph Retrieval
+    # Pre-calculate the whitelist of visible events for the current mode/context
+    visible_event_ids = set(get_filtered_events(story_uuid, mode, reader_chapter, pov_character_id))
+    
     retrieved_events = []
     seen_events = set()
     
@@ -53,7 +65,7 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
     for entity_id in query_entities:
         if graph.graph.has_node(entity_id):
             for u, event_id, edge_data in graph.graph.out_edges(entity_id, data=True):
-                if event_id not in seen_events and graph.graph.has_node(event_id) and graph.graph.nodes[event_id].get("type") == "event":
+                if event_id in visible_event_ids and event_id not in seen_events and graph.graph.has_node(event_id) and graph.graph.nodes[event_id].get("type") == "event":
                     seen_events.add(event_id)
                     event_data = graph.graph.nodes[event_id]
                     involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
@@ -74,7 +86,7 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
         for scene_id, scene_data in scene_nodes:
             if loc_lower in scene_data.get("location", "").lower():
                 for event_id, _, edge_data in graph.graph.in_edges(scene_id, data=True):
-                    if edge_data.get("relation") == "OCCURS_IN" and event_id not in seen_events:
+                    if edge_data.get("relation") == "OCCURS_IN" and event_id in visible_event_ids and event_id not in seen_events:
                         if graph.graph.has_node(event_id) and graph.graph.nodes[event_id].get("type") == "event":
                             seen_events.add(event_id)
                             event_data = graph.graph.nodes[event_id]
@@ -98,7 +110,7 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
             
         # Sort by chapter_id globally
         all_events.sort(key=lambda x: x[1].get("chapter_id", 0), reverse=True)
-        recent_events = all_events[:15]
+        recent_events = [e for e in all_events if e[0] in visible_event_ids][:15]
         
         for event_id, event_data in recent_events:
             if event_id not in seen_events:
@@ -157,10 +169,25 @@ Reason through the context chronologically and then provide a clear, narrative a
     # 5. LLM Generation
     # analyze_text() handles its own Groq fallback internally — no need to repeat it here.
     response = analyze_text(prompt, model=model)
+
+    # 6. Optional Spoiler Rewrite Pass
+    if mode == "reader" and response:
+        logger.info("Applying spoiler-safe rewrite pass to RAG response.")
+        response = rewrite_for_spoiler_free(response)
+
     return response
 
 
-def query_character_profile(story_uuid: str, character_id: str, character_name: str, model: str = None, existing_wiki_json: str = None) -> dict:
+def query_character_profile(
+    story_uuid: str, 
+    character_id: str, 
+    character_name: str, 
+    model: str = None, 
+    existing_wiki_json: str = None,
+    mode: str = "god",
+    reader_chapter: int = 999,
+    pov_character_id: Optional[str] = None
+) -> dict:
     """
     RAG-powered character profile enrichment using Time-CoT.
 
@@ -178,14 +205,13 @@ def query_character_profile(story_uuid: str, character_id: str, character_name: 
 
     graph = get_graph_engine(story_uuid)
 
-    # --- Retrieve every event this character participated in ---
-    retrieved_events = []
-    seen_events = set()
+    # Get the whitelist of visible events
+    visible_event_ids = set(get_filtered_events(story_uuid, mode, reader_chapter, pov_character_id))
 
     if graph.graph.has_node(character_id):
         for _, event_id, _ in graph.graph.out_edges(character_id, data=True):
             node_data = graph.graph.nodes.get(event_id, {})
-            if event_id not in seen_events and node_data.get("type") == "event":
+            if event_id in visible_event_ids and event_id not in seen_events and node_data.get("type") == "event":
                 seen_events.add(event_id)
                 involved = [
                     k for k, _ in graph.graph.in_edges(event_id)
@@ -261,6 +287,13 @@ Respond ONLY with a valid JSON object matching this exact schema:
 
     try:
         profile = analyze_text_json(prompt, model=model)
+        if profile and mode == "reader":
+            # Apply spoiler rewrite to the narrative fields
+            if "short_description" in profile:
+                profile["short_description"] = rewrite_for_spoiler_free(profile["short_description"])
+            if "synopsis" in profile:
+                profile["synopsis"] = rewrite_for_spoiler_free(profile["synopsis"])
+        
         if profile:
             logger.info(f"RAG enrichment produced profile for '{character_name}' from {len(retrieved_events)} events.")
         return profile or {}

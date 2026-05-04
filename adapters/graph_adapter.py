@@ -141,6 +141,18 @@ class GraphProvider:
             if self.graph.has_node(ev_id):
                 self.graph.add_edge(arc_id, ev_id, relation="contains")
 
+    def add_knowledge_edge(self, char_id: str, event_id: str, edge_type: str = "knows"):
+        """Explicitly tracks character knowledge or ignorance of an event.
+        
+        Args:
+            char_id: Normalized character ID.
+            event_id: The event node ID.
+            edge_type: "knows" | "unaware_of"
+        """
+        if self.graph.has_node(char_id) and self.graph.has_node(event_id):
+            self.graph.add_edge(char_id, event_id, relation=edge_type)
+
+
     def add_scene(self, scene_id: str, chapter_id: int, location: str, summary: str):
         """Adds a scene node."""
         self.graph.add_node(

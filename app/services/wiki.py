@@ -656,7 +656,13 @@ def _enrich_from_text_mentions(
     return result if isinstance(result, dict) else {}
 
 
-def enrich_wiki_from_rag(story_uuid: str, character_id: str) -> Optional[CharacterWiki]:
+def enrich_wiki_from_rag(
+    story_uuid: str, 
+    character_id: str,
+    mode: str = "god",
+    reader_chapter: int = 999,
+    pov_character_id: Optional[str] = None
+) -> Optional[CharacterWiki]:
     """
     Re-generates a character's wiki by querying the full story graph with
     Time-CoT RAG (rather than the per-chapter extractor).
@@ -672,7 +678,15 @@ def enrich_wiki_from_rag(story_uuid: str, character_id: str) -> Optional[Charact
     logger.info(f"RAG-enriching wiki for '{character_name}' ({character_id})…")
     
     existing_json_str = existing.model_dump_json(indent=2)
-    profile_data = query_character_profile(story_uuid, character_id, character_name, existing_wiki_json=existing_json_str)
+    profile_data = query_character_profile(
+        story_uuid, 
+        character_id, 
+        character_name, 
+        existing_wiki_json=existing_json_str,
+        mode=mode,
+        reader_chapter=reader_chapter,
+        pov_character_id=pov_character_id
+    )
     if not profile_data:
         # P5 FALLBACK: No graph events → scan raw chapter texts for text-based mentions
         logger.warning(
@@ -692,7 +706,12 @@ def enrich_wiki_from_rag(story_uuid: str, character_id: str) -> Optional[Charact
     return enriched
 
 
-def enrich_all_wikis_from_rag(story_uuid: str) -> dict:
+def enrich_all_wikis_from_rag(
+    story_uuid: str,
+    mode: str = "god",
+    reader_chapter: int = 999,
+    pov_character_id: Optional[str] = None
+) -> dict:
     """
     Batch-enriches every character wiki in a story using RAG.
     """
@@ -707,7 +726,13 @@ def enrich_all_wikis_from_rag(story_uuid: str) -> dict:
         if not filename.endswith(".json"):
             continue
         character_id = filename[:-5]  # strip .json
-        result = enrich_wiki_from_rag(story_uuid, character_id)
+        result = enrich_wiki_from_rag(
+            story_uuid, 
+            character_id,
+            mode=mode,
+            reader_chapter=reader_chapter,
+            pov_character_id=pov_character_id
+        )
         if result:
             enriched.append(character_id)
         else:

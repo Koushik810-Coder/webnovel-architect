@@ -16,8 +16,8 @@ Use this document to track the progress of features outlined in `Future_Ideas.md
 ## Phase 2 — New Features (In Progress)
 - [x] **2.0 Scene Nodes as Intermediate Graph Layer**
 - [x] **2.1 Sliding-Window Chapter Ingestion**
-- [ ] **2.2 Adaptive Model Routing**
-- [ ] **2.3 Spoiler-Free & POV Wiki Filter**
+- [x] **2.2 Adaptive Model Routing**
+- [x] **2.3 Spoiler-Free & POV Wiki Filter**
 - [x] **2.4 Batched Arc Detection**
 - [ ] **2.5 Location & Event Wiki Pages**
 - [ ] **2.6a Wiki Page Versioning**

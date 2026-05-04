@@ -167,13 +167,48 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
         "raw_entities": {name: 1 for name in potential_characters}
     }
 
+def route_model(text: str) -> str:
+    """
+    Dynamically routes text extraction to the appropriate LLM based on chapter complexity.
+    Uses a fast/cheap LLM pass to assess complexity instead of spaCy.
+    Complex chapters -> remote API (e.g., gemini/gemini-1.5-pro-latest)
+    Straightforward chapters -> local/cheaper SLM (e.g., groq/llama-3.1-8b-instant)
+    """
+    from app.core.config import get_llm_model, get_config
+    default_model = get_llm_model()
+    
+    try:
+        from adapters.llm_adapter import analyze_text_json
+        fast_model = get_config().get("fallback_llm", "groq/llama-3.1-8b-instant")
+        
+        prompt = f"""
+        Analyze this chapter excerpt and rate its narrative complexity.
+        Respond ONLY with a JSON object containing a 'complexity_score' (integer 1-10).
+        10 = Highly complex, many characters/factions, ambiguous action, deep lore.
+        1 = Very straightforward, 1-2 characters, clean dialogue.
+        
+        Excerpt:
+        {text[:3000]}
+        """
+        
+        res = analyze_text_json(prompt, model=fast_model)
+        score = int(res.get("complexity_score", 5))
+        
+        if score >= 7:
+            return "gemini/gemini-1.5-pro-latest"
+        else:
+            return default_model
+    except Exception as e:
+        logger.warning(f"Model routing assessment failed: {e}. Defaulting to {default_model}.")
+        return default_model
+
 def extract_chapter_intelligence_llm(text: str, model: str = None, previous_context: str = None) -> Dict[str, Any]:
     """
     Analyzes chapter text using an LLM.
     Returns metrics to update the Story Intelligence Engine.
     """
     if model is None:
-        model = get_llm_model()
+        model = route_model(text)
     from adapters.llm_adapter import analyze_text_json
     
     context_block = ""

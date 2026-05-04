@@ -467,30 +467,54 @@ elif page == "Wiki Memory":
     import os
     wiki_dir = get_wiki_dir(active_story_uuid)
     
+    files = []
     if os.path.exists(wiki_dir):
         files = [f for f in os.listdir(wiki_dir) if f.endswith('.md')]
-        if not files:
-            st.info("No characters in Wiki yet. Process some chapters first!")
+    # Mode Selector
+    col_mode, col_chap, col_pov = st.columns([2, 2, 2])
+    with col_mode:
+        wiki_mode = st.selectbox("Wiki View Mode", ["God Mode", "Reader Mode", "Character POV"], index=0)
+        mode_map = {"God Mode": "god", "Reader Mode": "reader", "Character POV": "pov"}
+        mode = mode_map[wiki_mode]
+    
+    with col_chap:
+        from app.services.ingest import load_runtime
+        chapter_counter, _ = load_runtime(active_story_uuid)
+        reader_chapter = st.number_input("Reader's Current Chapter", min_value=0, max_value=chapter_counter if chapter_counter > 0 else 999, value=chapter_counter if chapter_counter > 0 else 0)
+    
+    with col_pov:
+        if mode == "pov":
+            pov_options = [f.replace('.md', '') for f in os.listdir(wiki_dir) if f.endswith('.md')]
+            pov_character_id = st.selectbox("POV Character", pov_options) if pov_options else None
         else:
-            selected_file = st.selectbox(
-                "Select Character",
-                files,
-                format_func=lambda f: f.replace('.md', '').replace('_', ' ').title()
-            )
-            if not selected_file:
-                st.warning("No character selected.")
-            else:
-                with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
-                    content = f.read()
+            pov_character_id = None
 
-                col1, col2, col3 = st.columns([6, 2, 2])
-                with col2:
-                    from app.services.wiki import enrich_wiki_from_rag
-                    if st.button("✨ Improve with RAG", use_container_width=True):
-                        with st.spinner("Enriching wiki using Graph RAG..."):
-                            char_id = selected_file.replace('.md', '')
-                            try:
-                                enrich_wiki_from_rag(active_story_uuid, char_id)
+    if files:
+        selected_file = st.selectbox(
+            "Select Character",
+            files,
+            format_func=lambda f: f.replace('.md', '').replace('_', ' ').title()
+        )
+        if not selected_file:
+            st.warning("No character selected.")
+        else:
+            with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
+                content = f.read()
+
+            col1, col2, col3 = st.columns([6, 2, 2])
+            with col2:
+                from app.services.wiki import enrich_wiki_from_rag
+                if st.button("✨ Improve with RAG", use_container_width=True):
+                    with st.spinner("Enriching wiki using Graph RAG (respecting filters)..."):
+                        char_id = selected_file.replace('.md', '')
+                        try:
+                            enrich_wiki_from_rag(
+                                active_story_uuid, 
+                                char_id,
+                                mode=mode,
+                                reader_chapter=reader_chapter,
+                                pov_character_id=pov_character_id
+                            )
                                 st.success("Wiki enriched successfully!")
                                 import time
                                 time.sleep(1)
@@ -743,6 +767,17 @@ elif page == "Story Q&A":
     st.header("Story Q&A (Time-CoT RAG)")
     st.markdown("Ask temporal and contextual questions about the story. The engine uses DyG-RAG principles (Chronological Dynamic Event Units) to reason through the character timelines.")
     
+    # RAG Filtering Controls
+    with st.expander("🔍 Filtering & Spoiler Controls"):
+        col1, col2 = st.columns(2)
+        with col1:
+            qa_mode_sel = st.selectbox("Answer Perspective", ["Full Knowledge (Spoilers)", "Reader Safe (No Spoilers)"], index=0)
+            qa_mode = "god" if "Full" in qa_mode_sel else "reader"
+        with col2:
+            from app.services.ingest import load_runtime
+            chapter_counter, _ = load_runtime(active_story_uuid)
+            qa_reader_chapter = st.number_input("Assume Reader at Chapter", min_value=0, max_value=chapter_counter if chapter_counter > 0 else 999, value=chapter_counter if chapter_counter > 0 else 0, key="qa_chapter")
+
     with st.form("qna_form"):
         query = st.text_input("Ask a question about the story:", placeholder="What happened to Lucian after he fought the troll?")
         submit = st.form_submit_button("Ask")
@@ -751,7 +786,12 @@ elif page == "Story Q&A":
             with st.spinner("Traversing the event graph and reasoning through the timeline..."):
                 from app.services.rag import query_story
                 try:
-                    answer = query_story(active_story_uuid, query)
+                    answer = query_story(
+                        active_story_uuid, 
+                        query, 
+                        mode=qa_mode, 
+                        reader_chapter=qa_reader_chapter
+                    )
                     st.success("Analysis Complete")
                     st.markdown("### Answer")
                     st.write(answer)
