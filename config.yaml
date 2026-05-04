@@ -1,10 +1,10 @@
 # Switch engines here without touching code
 # Primary LLM: NVIDIA NIM (fast, on-demand, OpenAI-compatible)
-llm_model: "nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct"
+llm_model: "nvidia_nim/meta/llama-3.3-70b-instruct"
 # Tier-2 fallback: Gemini (if NIM is unavailable)
 fallback_llm: "gemini/gemini-2.5-flash"
-# Tier-3 fallback: Groq (last resort)
-fallback_llm_last_resort: "groq/llama-3.1-8b-instant"
+# Tier-3 fallback: Groq (last resort, strong model)
+fallback_llm_last_resort: "groq/llama-3.3-70b-versatile"
 # TTS engines
 tts_engine: "kokoro"               # Local CPU
 fallback_tts: "edge"               # Online Free

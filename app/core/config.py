@@ -13,58 +13,45 @@ _config_lock = threading.Lock()
 
 _DEFAULTS = {
     # 3-tier fallback chain: NIM → Gemini → Groq
-    "llm_model": "nvidia_nim/meta/llama-3.1-70b-instruct",
+    "llm_model": "nvidia_nim/meta/llama-3.3-70b-instruct",
     "tts_engine": "edge",
     "fallback_tts": "edge",
     "fallback_llm": "gemini/gemini-2.5-flash",
-    "fallback_llm_last_resort": "groq/llama-3.1-8b-instant",
+    "fallback_llm_last_resort": "groq/llama-3.3-70b-versatile",
 }
 
 
 def get_config() -> Dict[str, Any]:
     """
-    Returns the project config from config.yaml, cached after first load.
+    Returns the project config from config.yaml.
+    Reads the file directly every time to pick up live edits.
     Falls back to safe defaults if the file is missing or malformed.
-    Thread-safe: uses double-checked locking so concurrent callers don't
-    each attempt to read the file.
     """
-    global _config_cache
-    if _config_cache:
-        return _config_cache
+    search_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = None
+    for _ in range(5):  # walk up at most 5 levels
+        candidate = os.path.join(search_dir, "config.yaml")
+        if os.path.exists(candidate):
+            config_path = candidate
+            break
+        parent = os.path.dirname(search_dir)
+        if parent == search_dir:
+            break
+        search_dir = parent
 
-    with _config_lock:
-        # Second check inside the lock (double-checked locking pattern)
-        if _config_cache:
-            return _config_cache
-
-        # Search for config.yaml starting from this file's location upwards
-        search_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = None
-        for _ in range(5):  # walk up at most 5 levels
-            candidate = os.path.join(search_dir, "config.yaml")
-            if os.path.exists(candidate):
-                config_path = candidate
-                break
-            parent = os.path.dirname(search_dir)
-            if parent == search_dir:
-                break
-            search_dir = parent
-
-        if config_path:
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    loaded = yaml.safe_load(f) or {}
-                _config_cache = {**_DEFAULTS, **loaded}
-            except Exception:
-                _config_cache = dict(_DEFAULTS)
-        else:
-            _config_cache = dict(_DEFAULTS)
-
-    return _config_cache
+    if config_path:
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+            return {**_DEFAULTS, **loaded}
+        except Exception:
+            return dict(_DEFAULTS)
+    
+    return dict(_DEFAULTS)
 
 
 def get_llm_model() -> str:
-    """Shorthand: returns the configured primary LLM model string (NVIDIA NIM)."""
+    """Shorthand: returns the configured primary LLM model string (nvidia_nim/meta/llama-3.3-70b-instruct by default)."""
     return get_config().get("llm_model", _DEFAULTS["llm_model"])
 
 

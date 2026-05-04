@@ -113,8 +113,8 @@ def _run_with_retry(
     import litellm  # lazy import – keeps startup fast
 
     kwargs = dict(extra_kwargs or {})
-    kwargs.setdefault("request_timeout", 180)
-    kwargs.setdefault("timeout", 180)
+    # Use request_timeout, litellm will pass it to httpx. Avoid `timeout` kwarg to bypass buggy internal threadpool
+    kwargs.setdefault("request_timeout", 180.0)
     kwargs.setdefault("max_retries", 0)
     num_keys = max(1, len(_groq_keys)) if _groq_keys else 1
     last_err: Exception | None = None
@@ -182,11 +182,15 @@ def _try_model(
     extra_kwargs: Optional[dict] = None,
     content_transform: Optional[Callable[[str], Any]] = None,
 ) -> tuple[bool, Any]:
-    """Thin wrapper: injects provider-specific API keys before calling _run_with_retry."""
+    """Thin wrapper: injects provider-specific API keys and strips unsupported kwargs before calling _run_with_retry."""
     kw = dict(extra_kwargs or {})
     # Inject NVIDIA NIM key if this is a NIM call
     if model.startswith("nvidia_nim/") and _nim_api_key:
         kw["api_key"] = _nim_api_key
+    # Gemini and Groq do NOT support response_format={type: json_object} — strip it
+    # to prevent JSONDecodeError / 400 Bad Request on those providers.
+    if not model.startswith("nvidia_nim/") and not model.startswith("openai/"):
+        kw.pop("response_format", None)
     return _run_with_retry(model, messages, max_attempts=max_attempts, extra_kwargs=kw, content_transform=content_transform)
 
 
