@@ -55,9 +55,10 @@ def populated_graph(tmp_path, monkeypatch, story_uuid):
 def test_rag_retrieves_events_for_known_character(populated_graph, story_uuid):
     """query_story must return events involving 'Zorian' when queried about Zorian."""
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
-        with patch("app.services.rag.analyze_text", return_value="Zorian started looping."):
-            from app.services.rag import query_story
-            result = query_story(story_uuid, "What did Zorian do?")
+        with patch("app.services.rag.analyze_text_json", return_value={"characters": ["Zorian"], "locations": [], "concepts": []}):
+            with patch("app.services.rag.analyze_text", return_value="Zorian started looping."):
+                from app.services.rag import query_story
+                result = query_story(story_uuid, "What did Zorian do?")
     assert result is not None
     assert len(result) > 0
 
@@ -65,9 +66,10 @@ def test_rag_retrieves_events_for_known_character(populated_graph, story_uuid):
 def test_rag_returns_not_found_for_unknown_entity(populated_graph, story_uuid):
     """A query about a character not in the graph should return a graceful message."""
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
-        with patch("app.services.rag.analyze_text", return_value="Mocked not found message"):
-            from app.services.rag import query_story
-            result = query_story(story_uuid, "What did Gandalf do?")
+        with patch("app.services.rag.analyze_text_json", return_value={"characters": [], "locations": [], "concepts": []}):
+            with patch("app.services.rag.analyze_text", return_value="Mocked not found message"):
+                from app.services.rag import query_story
+                result = query_story(story_uuid, "What did Gandalf do?")
     # Should be a safe "not found" message, not a crash
     assert isinstance(result, str)
     assert len(result) > 0
@@ -87,9 +89,11 @@ def test_rag_events_sorted_chronologically(populated_graph, story_uuid):
         return "Mocked answer."
 
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
-        with patch("app.services.rag.analyze_text", side_effect=capture_analyze):
-            from app.services.rag import query_story
-            query_story(story_uuid, "Tell me about Zorian")
+        with patch("app.services.wiki_filter.get_graph_engine", return_value=populated_graph):
+            with patch("app.services.rag.analyze_text_json", return_value={"characters": ["Zorian"], "locations": [], "concepts": []}):
+                with patch("app.services.rag.analyze_text", side_effect=capture_analyze):
+                    from app.services.rag import query_story
+                    query_story(story_uuid, "Tell me about Zorian")
 
     assert captured_prompts, "analyze_text was never called"
     prompt = captured_prompts[0]
@@ -113,8 +117,9 @@ def test_rag_empty_graph_returns_safe_message(tmp_path, monkeypatch, story_uuid)
     empty_gp = GraphProvider(story_uuid)
 
     with patch("app.services.rag.get_graph_engine", return_value=empty_gp):
-        from app.services.rag import query_story
-        result = query_story(story_uuid, "Who is the main character?")
+        with patch("app.services.rag.analyze_text_json", return_value={"characters": [], "locations": [], "concepts": []}):
+            from app.services.rag import query_story
+            result = query_story(story_uuid, "Who is the main character?")
 
     assert isinstance(result, str)
     assert len(result) > 0
@@ -127,10 +132,6 @@ def test_rag_delegates_fallback_to_adapter(populated_graph, story_uuid):
     """
     query_story makes exactly one call to analyze_text and delegates fallback
     handling to the adapter's built-in retry logic.
-
-    The explicit double-call fallback that used to live in rag.py was removed
-    because analyze_text already handles primary→Groq fallback internally,
-    so duplicating it caused the fallback to fire twice on failure.
     """
     call_log = []
 
@@ -139,10 +140,12 @@ def test_rag_delegates_fallback_to_adapter(populated_graph, story_uuid):
         return "Mocked answer."
 
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
-        with patch("app.services.rag.analyze_text", side_effect=mock_analyze):
-            with patch("app.services.rag.get_llm_model", return_value="gemini/gemini-2.5-flash"):
-                from app.services.rag import query_story
-                result = query_story(story_uuid, "What did Zorian do?")
+        with patch("app.services.wiki_filter.get_graph_engine", return_value=populated_graph):
+            with patch("app.services.rag.analyze_text_json", return_value={"characters": ["Zorian"], "locations": [], "concepts": []}):
+                with patch("app.services.rag.analyze_text", side_effect=mock_analyze):
+                    with patch("app.services.rag.get_llm_model", return_value="gemini/gemini-2.5-flash"):
+                        from app.services.rag import query_story
+                        result = query_story(story_uuid, "What did Zorian do?")
 
     assert len(call_log) == 1, (
         f"rag.py should make exactly 1 call to analyze_text (adapter handles fallback internally), "

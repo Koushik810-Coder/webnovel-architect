@@ -149,13 +149,15 @@ with st.sidebar:
                 help="Deletes chapters, wiki, graph, runtime, and index. Keeps the story name.",
             ):
                 StoryManager.wipe_story_data(cur_uuid)
+                # Evict stale in-memory graph so next access reloads from (empty) disk
+                _graph_instances.pop(cur_uuid, None)
                 # Clear stale session state
                 for _key in ('parsed_index_chapters', 'parsed_epub_chapters',
                              'last_ingested_index', 'saved_index_url',
                              'fetched_title', 'fetched_text'):
                     st.session_state.pop(_key, None)
                 st.success("All data wiped. Story is ready for fresh ingestion.")
-                import time; time.sleep(1)
+                time.sleep(1)
                 st.rerun()
 
     st.divider()
@@ -509,18 +511,17 @@ elif page == "Wiki Memory":
                         char_id = selected_file.replace('.md', '')
                         try:
                             enrich_wiki_from_rag(
-                                active_story_uuid, 
+                                active_story_uuid,
                                 char_id,
                                 mode=mode,
                                 reader_chapter=reader_chapter,
                                 pov_character_id=pov_character_id
                             )
-                                st.success("Wiki enriched successfully!")
-                                import time
-                                time.sleep(1)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Failed to enrich wiki: {e}")
+                            st.success("Wiki enriched successfully!")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to enrich wiki: {e}")
 
                 with col3:
                     st.download_button(
@@ -674,7 +675,7 @@ elif page == "Audio Hub":
                 import os
                 from app.core.story_manager import StoryManager
                 output_dir = os.path.join(StoryManager.DATA_DIR, active_story_uuid, "generated_audio")
-                if not os.path.exists(output_dir): os.makedirs(output_dir)
+                os.makedirs(output_dir, exist_ok=True)
                 filename = os.path.join(output_dir, f"ui_test_{char.character_id}.wav")
                 
                 try:

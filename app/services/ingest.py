@@ -641,6 +641,7 @@ def ingest_multiple_chapters(
     """
     ingested_chapters = []
     total = len(chapters)
+    _scraper = None  # lazy-init once if any chapter needs URL scraping
     
     if os.path.exists(_CANCEL_FLAG):
         os.remove(_CANCEL_FLAG)
@@ -658,10 +659,11 @@ def ingest_multiple_chapters(
             # If text is missing, we might need to scrape it here if a URL is present
             url = chap_data.get("url")
             if url:
-                from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
-                scraper = RoyalRoadScraper()
+                if _scraper is None:
+                    from app.services.scrapers.royalroad_scraper import RoyalRoadScraper
+                    _scraper = RoyalRoadScraper()
                 try:
-                    scraped = scraper.scrape_chapter(url)
+                    scraped = _scraper.scrape_chapter(url)
                     text = scraped.get("text")
                 except Exception as e:
                     logger.error(f"Error scraping {url}: {e}")

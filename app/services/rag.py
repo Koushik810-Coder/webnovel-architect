@@ -7,6 +7,8 @@ from app.core.config import get_llm_model
 from app.services.wiki_filter import get_filtered_events, rewrite_for_spoiler_free
 from typing import Optional, List
 
+logger = get_logger(__name__)
+
 def query_story(
     story_uuid: str, 
     query: str, 
@@ -207,6 +209,9 @@ def query_character_profile(
 
     # Get the whitelist of visible events
     visible_event_ids = set(get_filtered_events(story_uuid, mode, reader_chapter, pov_character_id))
+
+    retrieved_events: list = []
+    seen_events: set = set()
 
     if graph.graph.has_node(character_id):
         for _, event_id, _ in graph.graph.out_edges(character_id, data=True):

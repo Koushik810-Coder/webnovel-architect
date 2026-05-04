@@ -452,12 +452,20 @@ class GraphProvider:
                 data = json.load(f)
             self.graph = nx.node_link_graph(data, edges="edges")
 
-# Instance mapping to preserve state across multiple stories simultaneously in memory
-_graph_instances = {}
+# Instance mapping to preserve state across multiple stories simultaneously in memory.
+# Capped at MAX_CACHED_GRAPHS entries; the oldest entry is evicted when the cap is
+# exceeded so long-running Streamlit sessions don't OOM on large story collections.
+_graph_instances: dict = {}
+_MAX_CACHED_GRAPHS = 5
 
-def get_graph_engine(story_uuid: str):
+def get_graph_engine(story_uuid: str) -> "GraphProvider":
     global _graph_instances
     if story_uuid not in _graph_instances:
+        if len(_graph_instances) >= _MAX_CACHED_GRAPHS:
+            # Evict the oldest entry (insertion-order guaranteed in Python 3.7+)
+            oldest = next(iter(_graph_instances))
+            logger.debug(f"Graph cache full — evicting story '{oldest}'")
+            del _graph_instances[oldest]
         _graph_instances[story_uuid] = GraphProvider(story_uuid)
     return _graph_instances[story_uuid]
 
@@ -469,10 +477,10 @@ def get_graph_engine(story_uuid: str):
 # prevents the threshold from becoming trivially small.
 _MAIN_CAST_BASE = 0.50  # same as graduation.MAIN_CAST_THRESHOLD for small N
 
-# Expose as a static method so graduation.py can call it without a full instance.
-GraphProvider.get_dynamic_main_cast_threshold = staticmethod(
-    lambda node_count: max(
-        __import__('app.core.graduation', fromlist=['DELTA_UPPER']).DELTA_UPPER,
-        _MAIN_CAST_BASE / (node_count ** 0.5),
-    )
-)
+
+def _dynamic_main_cast_threshold(node_count: int) -> float:
+    """Return a dynamically scaled graduation threshold based on graph size."""
+    return max(DELTA_UPPER, _MAIN_CAST_BASE / (node_count ** 0.5))
+
+
+GraphProvider.get_dynamic_main_cast_threshold = staticmethod(_dynamic_main_cast_threshold)
