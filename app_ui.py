@@ -165,7 +165,7 @@ with st.sidebar:
     # Navigation Radio
     page = st.radio(
         "Navigation",
-        ["Dashboard", "Ingestion Engine", "Wiki Memory", "Knowledge Graph", "Story Q&A", "Audio Hub", "Evaluation"],
+        ["Dashboard", "Ingestion Engine", "Wiki Memory", "Knowledge Graph", "Story Q&A", "Audio Hub", "Export & Package", "Evaluation"],
         key="nav_radio"
     )
     
@@ -904,6 +904,55 @@ elif page == "Story Q&A":
                     st.error(f"Failed to generate answer: {e}")
                     # Remove the failed user prompt so it doesn't get stuck
                     st.session_state[chat_key].pop()
+
+elif page == "Export & Package":
+    st.header("Export & Package Audiobook")
+    st.markdown("Compile your generated chapter audio into downloadable formats.")
+    
+    from app.services.export import export_audiobook_zip, export_audiobook_html, export_single_audiobook
+    import os
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.subheader("Raw ZIP")
+        st.caption("A simple ZIP containing all chapter MP3s and VTTs.")
+        if st.button("Package ZIP"):
+            with st.spinner("Packaging..."):
+                try:
+                    zip_path = export_audiobook_zip(active_story_uuid)
+                    with open(zip_path, "rb") as f:
+                        st.download_button("Download ZIP", f.read(), file_name=os.path.basename(zip_path), mime="application/zip", key="dl_zip")
+                    st.success("Successfully packaged raw ZIP!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    
+    with col2:
+        st.subheader("Web Player ZIP")
+        st.caption("A ZIP containing a stylish HTML web player pre-loaded with all chapters.")
+        if st.button("Package Web Player"):
+            with st.spinner("Packaging..."):
+                try:
+                    zip_path = export_audiobook_html(active_story_uuid)
+                    with open(zip_path, "rb") as f:
+                        st.download_button("Download Web Player", f.read(), file_name=os.path.basename(zip_path), mime="application/zip", key="dl_web")
+                    st.success("Successfully packaged web player!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    
+    with col3:
+        st.subheader("Single MP3 Audiobook")
+        st.caption("Stitch all chapters into one massive MP3 file using FFmpeg.")
+        if st.button("Stitch Audiobook"):
+            with st.spinner("Stitching via FFmpeg... This may take a while."):
+                try:
+                    mp3_path, vtt_path = export_single_audiobook(active_story_uuid)
+                    with open(mp3_path, "rb") as f:
+                        st.download_button("Download Full MP3", f.read(), file_name=os.path.basename(mp3_path), mime="audio/mpeg", key="dl_full_mp3")
+                    st.success("Successfully stitched single audiobook!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
 
 
 elif page == "Evaluation":
