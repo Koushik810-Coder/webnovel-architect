@@ -2,12 +2,10 @@ import sys
 import os
 import re
 import subprocess
-from difflib import SequenceMatcher
-import xml.etree.ElementTree as ET
 
 # Add the docx skill root to path
 sys.path.append(r'c:\Projects\webnovel-architect\.agents\skills\word-document-processor')
-from scripts.document import Document, DocxXMLEditor
+from scripts.document import Document
 
 def normalize(text):
     if not text: return ""

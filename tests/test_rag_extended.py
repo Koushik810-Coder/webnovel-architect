@@ -10,7 +10,7 @@ Extended RAG tests covering:
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from adapters.graph_adapter import GraphProvider, _graph_instances
 

@@ -2,7 +2,8 @@
 Extracts all inline SVG diagrams from the webnovel_architect HTML file
 and saves them as SVG files. Optionally converts to PNG using cairosvg or Inkscape.
 """
-import io, sys
+import io
+import sys
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 import re
 import os

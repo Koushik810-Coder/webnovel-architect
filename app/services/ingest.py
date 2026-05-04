@@ -183,6 +183,31 @@ def _check_fixer_triggers(events: list) -> list:
 # Public ingestion functions
 # ---------------------------------------------------------------------------
 
+def _get_previous_chapter_context(story_uuid: str, chapter_id: int, num_paragraphs: int = 2) -> Optional[str]:
+    """
+    Reads the last N paragraphs of the previous chapter to provide context
+    for the sliding window extraction strategy.
+    """
+    if chapter_id <= 0:
+        return None
+        
+    path = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(chapter_id), "text.txt")
+    if not os.path.exists(path):
+        return None
+        
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+            
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        if not paragraphs:
+            return None
+            
+        return "\n\n".join(paragraphs[-num_paragraphs:])
+    except Exception as e:
+        logger.warning(f"Failed to load previous chapter {chapter_id} context: {e}")
+        return None
+
 def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm", decay_rate: float = 0.05) -> Chapter:
     """
     Processes and ingests a single chapter for a given story.
@@ -208,8 +233,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # 2. Extract Intelligence FIRST — before committing any state to disk.
     # If extraction fails the chapter_counter is never incremented, so the next
     # attempt will reuse the same chapter slot (no off-by-one drift).
+    previous_context = _get_previous_chapter_context(story_uuid, chapter_counter)
+    
     if extractor == "llm":
-        intelligence = extract_chapter_intelligence_llm(text)
+        intelligence = extract_chapter_intelligence_llm(text, previous_context=previous_context)
     else:
         intelligence = extract_chapter_intelligence(text)
 

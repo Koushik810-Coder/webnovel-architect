@@ -1,4 +1,3 @@
-import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Any
 from app.services.scrapers.base_scraper import BaseScraper

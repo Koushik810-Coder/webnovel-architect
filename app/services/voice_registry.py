@@ -2,7 +2,6 @@ import json
 import os
 import hashlib
 import pathlib
-import random
 from typing import Dict, List, Set, Optional
 
 from app.core.logger import get_logger

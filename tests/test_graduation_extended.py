@@ -9,7 +9,6 @@ Extended graduation logic tests covering:
   - Protagonist with max score always reaches MAIN_CAST
 """
 
-import pytest
 from unittest.mock import patch, MagicMock
 
 from app.core.graduation import (

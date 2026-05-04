@@ -12,7 +12,6 @@ Extended graph adapter tests covering:
 """
 
 import os
-import json
 import pytest
 
 from adapters.graph_adapter import GraphProvider
@@ -39,7 +38,6 @@ class TestGraphPersistence:
         gp.save_graph()
 
         # Load fresh instance from same directory
-        import app.core.story_manager as sm
         gp2 = GraphProvider("graph_ext_story")
         char_ids = [n for n, d in gp2.graph.nodes(data=True) if d.get("type") == "character"]
         assert "aria" in char_ids

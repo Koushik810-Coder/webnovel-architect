@@ -340,7 +340,7 @@ class TestGraduationStatusTracking:
     def test_check_graduation_returns_true_on_voice_release(self):
         """check_graduation_status returns True when voice is released (de-graduation)."""
         from app.core.models.character_runtime import CharacterRuntime
-        from app.core.graduation import check_graduation_status, DELTA_UPPER
+        from app.core.graduation import check_graduation_status
         from unittest.mock import patch
 
         char = CharacterRuntime(

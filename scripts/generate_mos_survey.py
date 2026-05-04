@@ -1,5 +1,4 @@
 import os
-import sys
 import glob
 import random
 import pandas as pd

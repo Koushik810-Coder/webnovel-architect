@@ -74,8 +74,8 @@ class TestSceneNodes:
         
         # Check if graph has the scene node and the event and edge
         gp = GraphProvider(story_uuid)
-        scene_id = f"chapter_1_scene_s1"
-        event_id = f"chapter_1_event_0"
+        scene_id = "chapter_1_scene_s1"
+        event_id = "chapter_1_event_0"
         
         assert gp.graph.has_node(scene_id)
         assert gp.graph.nodes[scene_id]["type"] == "scene"
@@ -85,7 +85,6 @@ class TestSceneNodes:
     def test_rag_retrieves_by_scene_when_query_location_specific(self, monkeypatch):
         """RAG retrieves by scene when query is location-specific"""
         import app.services.rag as rag
-        import adapters.llm_adapter as llm
         
         # Mock LLM calls
         calls = {"intent": 0, "query": 0}

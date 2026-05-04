@@ -7,7 +7,6 @@ import re
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime, normalize_id
 from app.services.wiki import get_character_wiki_content, parse_character_wiki
-from adapters.llm_adapter import analyze_text_json
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)

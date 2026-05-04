@@ -11,9 +11,7 @@ Extended tests for adapters/llm_adapter.py covering:
 """
 
 import json
-import time
-import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 import adapters.llm_adapter as llm_mod
 

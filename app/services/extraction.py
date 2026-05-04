@@ -167,7 +167,7 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
         "raw_entities": {name: 1 for name in potential_characters}
     }
 
-def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, Any]:
+def extract_chapter_intelligence_llm(text: str, model: str = None, previous_context: str = None) -> Dict[str, Any]:
     """
     Analyzes chapter text using an LLM.
     Returns metrics to update the Story Intelligence Engine.
@@ -176,6 +176,10 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
         model = get_llm_model()
     from adapters.llm_adapter import analyze_text_json
     
+    context_block = ""
+    if previous_context:
+        context_block = f"\n    PREVIOUS CHAPTER CONTEXT (for continuity only, do not extract events from this):\n    {previous_context}\n"
+
     prompt = f"""
     Analyze the following chapter text and extract these elements:
     
@@ -233,7 +237,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
     "Tomorrow, Lord Vael would visit the Upper Realm. 'I must prepare,' he thought."
     Example '_thought_process':
     "1. 'Tomorrow' is a time reference, ignore. 2. 'Lord Vael' -> 'Vael'. 3. 'Upper Realm' = world term. 4. Event: Musing preparation. Intensity 1."
-    
+    {context_block}
     Chapter Text:
     {text}
     """
@@ -245,10 +249,12 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
         raise ValueError("Failed to extract intelligence. The LLM response was empty or invalid JSON.")
         
     active_characters = result.get("active_character_names", [])
-    if not isinstance(active_characters, list): active_characters = []
+    if not isinstance(active_characters, list):
+        active_characters = []
     
     active_world_terms = result.get("active_world_terms", [])
-    if not isinstance(active_world_terms, list): active_world_terms = []
+    if not isinstance(active_world_terms, list):
+        active_world_terms = []
         
     dialogue_count = result.get("dialogue_count_total", 0)
     if not isinstance(dialogue_count, int):

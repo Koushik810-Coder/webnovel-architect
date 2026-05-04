@@ -6,7 +6,6 @@ import pandas as pd
 # Add the project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.services.extraction import extract_chapter_intelligence
 
 def calculate_temporal_pagerank(graph, lambda_val, current_chapter):
     scores = {}

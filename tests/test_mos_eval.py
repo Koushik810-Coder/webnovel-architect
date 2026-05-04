@@ -11,8 +11,6 @@ The MOS UI has three testable pure-Python responsibilities:
 
 import csv
 import os
-import tempfile
-import pytest
 
 
 # ---------------------------------------------------------------------------

@@ -11,8 +11,7 @@ Covers:
   - _sequential_fallback calls update_character_profile per character
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.services.wiki import batch_update_character_profiles, _sequential_fallback
 

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 from pydantic import BaseModel
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime, save_index_state, load_index_state, ingest_multiple_chapters

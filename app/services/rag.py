@@ -113,7 +113,7 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
                     "participants": [p.replace("_", " ").title() for p in involved]
                 })
     if not retrieved_events:
-        return f"I couldn't find any recorded events in the story graph."
+        return "I couldn't find any recorded events in the story graph."
 
 
     # 3. Time-CoT Ordering

@@ -5,9 +5,7 @@ from unittest.mock import MagicMock
 
 # We will implement these in app/core/errors.py and app/core/retries.py
 from app.core.errors import (
-    WebnovelError, 
     ExtractionError, 
-    PipelineDependencyError, 
     ExternalServiceError
 )
 from app.core.retries import with_retry
