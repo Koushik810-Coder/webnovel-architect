@@ -12,10 +12,12 @@ _config_cache: Dict[str, Any] = {}
 _config_lock = threading.Lock()
 
 _DEFAULTS = {
-    "llm_model": "groq/llama-3.1-8b-instant",
+    # 3-tier fallback chain: NIM → Gemini → Groq
+    "llm_model": "nvidia_nim/meta/llama-3.1-70b-instruct",
     "tts_engine": "edge",
     "fallback_tts": "edge",
-    "fallback_llm": "groq/llama-3.1-8b-instant",
+    "fallback_llm": "gemini/gemini-2.5-flash",
+    "fallback_llm_last_resort": "groq/llama-3.1-8b-instant",
 }
 
 
@@ -62,5 +64,15 @@ def get_config() -> Dict[str, Any]:
 
 
 def get_llm_model() -> str:
-    """Shorthand: returns the configured LLM model string."""
+    """Shorthand: returns the configured primary LLM model string (NVIDIA NIM)."""
     return get_config().get("llm_model", _DEFAULTS["llm_model"])
+
+
+def get_fallback_llm() -> str:
+    """Returns the tier-2 fallback model (Gemini)."""
+    return get_config().get("fallback_llm", _DEFAULTS["fallback_llm"])
+
+
+def get_fallback_llm_last_resort() -> str:
+    """Returns the tier-3 last-resort fallback model (Groq)."""
+    return get_config().get("fallback_llm_last_resort", _DEFAULTS["fallback_llm_last_resort"])

@@ -65,11 +65,19 @@ def _cache_put(key: str, value: dict) -> None:
     except Exception as e:
         logger.debug(f"LLM cache write error (non-fatal): {e}")
 
-# --- Groq Key Rotation ---
+# --- API Key setup ---
+# Groq key rotation (multiple keys supported via GROQ_API_KEY, GROQ_API_KEY_2, etc.)
 _groq_keys = [v.strip() for k, v in os.environ.items() if k.startswith("GROQ_API_KEY") and v.strip()]
 _groq_cycle = itertools.cycle(_groq_keys) if _groq_keys else None
 if _groq_keys:
     logger.info(f"Initialized LLM Adapter with {len(_groq_keys)} Groq API keys for rotation.")
+
+# NVIDIA NIM key (single key from env)
+_nim_api_key = os.environ.get("NVIDIA_NIM_API_KEY", "").strip()
+if _nim_api_key:
+    logger.info("NVIDIA NIM API key found — NIM is available as primary LLM.")
+else:
+    logger.warning("NVIDIA_NIM_API_KEY not set — NIM calls will fail; Gemini/Groq will be used as fallback.")
 # -------------------------
 
 
@@ -158,30 +166,57 @@ def _run_with_retry(
     return False, last_err
 
 
+def _try_model(
+    model: str,
+    messages: list,
+    max_attempts: int,
+    extra_kwargs: Optional[dict] = None,
+    content_transform: Optional[Callable[[str], Any]] = None,
+) -> tuple[bool, Any]:
+    """Thin wrapper: injects provider-specific API keys before calling _run_with_retry."""
+    kw = dict(extra_kwargs or {})
+    # Inject NVIDIA NIM key if this is a NIM call
+    if model.startswith("nvidia_nim/") and _nim_api_key:
+        kw["api_key"] = _nim_api_key
+    return _run_with_retry(model, messages, max_attempts=max_attempts, extra_kwargs=kw, content_transform=content_transform)
+
+
 def analyze_text(text: str, model: str = None, temperature: float = 0.1) -> str:
     """
     Analyzes text using the specified LLM model via LiteLLM.
     Uses a low temperature (default 0.1) for consistent prose generation.
+
+    Fallback chain: NIM (primary) → Gemini (tier-2) → Groq (tier-3).
     """
     if not model:
         model = get_llm_model()
     messages = [{"role": "user", "content": text}]
     extra_kwargs = {"temperature": temperature}
 
-    success, result = _run_with_retry(model, messages, extra_kwargs=extra_kwargs)
+    # Tier 1: Primary model (NVIDIA NIM)
+    success, result = _try_model(model, messages, max_attempts=3, extra_kwargs=extra_kwargs)
     if success:
         return result
 
-    # D3 FIX: Read fallback from config.yaml instead of hardcoding.
-    from app.core.config import get_config
-    fallback_model = get_config().get("fallback_llm", "groq/llama-3.1-8b-instant")
-    if not model.startswith("groq"):
-        logger.warning(f"Primary model {model} failed. Falling back to {fallback_model} as a safeguard...")
-        success, result = _run_with_retry(fallback_model, messages, max_attempts=2, extra_kwargs=extra_kwargs)
+    from app.core.config import get_fallback_llm, get_fallback_llm_last_resort
+    fallback_model = get_fallback_llm()
+    last_resort_model = get_fallback_llm_last_resort()
+
+    # Tier 2: Gemini
+    if model != fallback_model:
+        logger.warning(f"Primary model {model} failed. Trying tier-2 fallback: {fallback_model}")
+        success, result = _try_model(fallback_model, messages, max_attempts=3, extra_kwargs=extra_kwargs)
         if success:
             return result
 
-    error_msg = f"API Fallback: All attempts failed for {model}. Last error: {str(result)}"
+    # Tier 3: Groq (last resort)
+    if model != last_resort_model and fallback_model != last_resort_model:
+        logger.warning(f"Tier-2 fallback {fallback_model} failed. Trying last-resort: {last_resort_model}")
+        success, result = _try_model(last_resort_model, messages, max_attempts=2, extra_kwargs=extra_kwargs)
+        if success:
+            return result
+
+    error_msg = f"All LLM tiers exhausted. Last error: {str(result)}"
     logger.critical(error_msg)
     return error_msg
 
@@ -190,11 +225,10 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
     """
     Analyzes text using the specified LLM model and expects a JSON response.
     Uses temperature=0 by default for fully deterministic, reproducible outputs.
-    The same input will always produce the same structured extraction result.
 
+    Fallback chain: NIM (primary) → Gemini (tier-2) → Groq (tier-3).
     Results are cached in a local SQLite DB keyed on hash(model + prompt) so
-    reprocessing identical chapters (common during debugging / re-ingestion)
-    costs $0.00 and completes in microseconds.
+    reprocessing identical chapters costs $0.00 and completes in microseconds.
     """
     if not model:
         model = get_llm_model()
@@ -216,30 +250,34 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
     ]
     extra_kwargs = {"response_format": {"type": "json_object"}, "temperature": temperature}
 
-    success, result = _run_with_retry(
-        model, messages, extra_kwargs=extra_kwargs, content_transform=_parse_json
-    )
+    from app.core.config import get_fallback_llm, get_fallback_llm_last_resort
+    fallback_model = get_fallback_llm()
+    last_resort_model = get_fallback_llm_last_resort()
+
+    # Tier 1: Primary model (NVIDIA NIM)
+    success, result = _try_model(model, messages, max_attempts=3, extra_kwargs=extra_kwargs, content_transform=_parse_json)
     if success:
-        _cache_put(cache_key, result)  # 1.3: persist to cache
+        _cache_put(cache_key, result)
         return result
 
-    # D3 FIX: Read fallback from config.yaml instead of hardcoding.
-    from app.core.config import get_config
-    fallback_model = get_config().get("fallback_llm", "groq/llama-3.1-8b-instant")
-    if not model.startswith("groq"):
-        logger.warning(
-            f"Primary model {model} failed. Falling back to {fallback_model} for JSON as a safeguard..."
-        )
-        success, result = _run_with_retry(
-            fallback_model, messages, max_attempts=2,
-            extra_kwargs=extra_kwargs, content_transform=_parse_json,
-        )
+    # Tier 2: Gemini
+    if model != fallback_model:
+        logger.warning(f"Primary model {model} failed. Trying tier-2 fallback: {fallback_model}")
+        success, result = _try_model(fallback_model, messages, max_attempts=3, extra_kwargs=extra_kwargs, content_transform=_parse_json)
         if success:
-            _cache_put(cache_key, result)  # 1.3: persist fallback result too
+            _cache_put(cache_key, result)
             return result
 
-    logger.critical(f"LLM JSON Extraction failed after all attempts: {str(result)}")
-    return {"error": f"API Fallback: Extraction failed. Last error: {str(result)}"}
+    # Tier 3: Groq (last resort)
+    if model != last_resort_model and fallback_model != last_resort_model:
+        logger.warning(f"Tier-2 fallback {fallback_model} failed. Trying last-resort: {last_resort_model}")
+        success, result = _try_model(last_resort_model, messages, max_attempts=2, extra_kwargs=extra_kwargs, content_transform=_parse_json)
+        if success:
+            _cache_put(cache_key, result)
+            return result
+
+    logger.critical(f"All LLM tiers exhausted for JSON extraction. Last error: {str(result)}")
+    return {"error": f"All LLM tiers exhausted. Last error: {str(result)}"}
 
 
 def get_model_info(model: str):

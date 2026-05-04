@@ -170,37 +170,38 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
 def route_model(text: str) -> str:
     """
     Dynamically routes text extraction to the appropriate LLM based on chapter complexity.
-    Uses a fast/cheap LLM pass to assess complexity instead of spaCy.
-    Complex chapters -> remote API (e.g., gemini/gemini-1.5-pro-latest)
-    Straightforward chapters -> local/cheaper SLM (e.g., groq/llama-3.1-8b-instant)
+    Uses a fast/cheap LLM pass to assess complexity.
+    Complex chapters (score >= 7)  -> primary model (NVIDIA NIM by default)
+    Straightforward chapters       -> last-resort/cheap model (Groq by default)
     """
-    from app.core.config import get_llm_model, get_config
-    default_model = get_llm_model()
-    
+    from app.core.config import get_llm_model, get_fallback_llm_last_resort
+    primary_model = get_llm_model()
+    cheap_model = get_fallback_llm_last_resort()
+
     try:
         from adapters.llm_adapter import analyze_text_json
-        fast_model = get_config().get("fallback_llm", "groq/llama-3.1-8b-instant")
-        
+        fast_model = cheap_model  # use cheapest model for the routing assessment itself
+
         prompt = f"""
         Analyze this chapter excerpt and rate its narrative complexity.
         Respond ONLY with a JSON object containing a 'complexity_score' (integer 1-10).
         10 = Highly complex, many characters/factions, ambiguous action, deep lore.
         1 = Very straightforward, 1-2 characters, clean dialogue.
-        
+
         Excerpt:
         {text[:3000]}
         """
-        
+
         res = analyze_text_json(prompt, model=fast_model)
         score = int(res.get("complexity_score", 5))
-        
+
         if score >= 7:
-            return "gemini/gemini-1.5-pro-latest"
+            return primary_model   # NIM for complex chapters
         else:
-            return default_model
+            return cheap_model     # Groq for straightforward chapters
     except Exception as e:
-        logger.warning(f"Model routing assessment failed: {e}. Defaulting to {default_model}.")
-        return default_model
+        logger.warning(f"Model routing assessment failed: {e}. Defaulting to {primary_model}.")
+        return primary_model
 
 def extract_chapter_intelligence_llm(text: str, model: str = None, previous_context: str = None) -> Dict[str, Any]:
     """
