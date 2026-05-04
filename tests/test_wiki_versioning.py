@@ -9,9 +9,7 @@ Covers:
   - Cache invalidation logic (skipping LLM call if graph hash hasn't changed).
 """
 
-from unittest.mock import patch, MagicMock
-import pytest
-import datetime
+from unittest.mock import patch
 import networkx as nx
 
 from adapters.graph_adapter import GraphProvider

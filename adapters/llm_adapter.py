@@ -113,7 +113,9 @@ def _run_with_retry(
     import litellm  # lazy import – keeps startup fast
 
     kwargs = dict(extra_kwargs or {})
-    kwargs.setdefault("request_timeout", 60)
+    kwargs.setdefault("request_timeout", 180)
+    kwargs.setdefault("timeout", 180)
+    kwargs.setdefault("max_retries", 0)
     num_keys = max(1, len(_groq_keys)) if _groq_keys else 1
     last_err: Exception | None = None
 
@@ -199,7 +201,7 @@ def analyze_text(text: str, model: str = None, temperature: float = 0.1, chat_hi
     extra_kwargs = {"temperature": temperature}
 
     # Tier 1: Primary model (NVIDIA NIM)
-    success, result = _try_model(model, messages, max_attempts=3, extra_kwargs=extra_kwargs)
+    success, result = _try_model(model, messages, max_attempts=2, extra_kwargs=extra_kwargs)
     if success:
         return result
 
@@ -260,7 +262,7 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
     last_resort_model = get_fallback_llm_last_resort()
 
     # Tier 1: Primary model (NVIDIA NIM)
-    success, result = _try_model(model, messages, max_attempts=3, extra_kwargs=extra_kwargs, content_transform=_parse_json)
+    success, result = _try_model(model, messages, max_attempts=2, extra_kwargs=extra_kwargs, content_transform=_parse_json)
     if success:
         _cache_put(cache_key, result)
         return result

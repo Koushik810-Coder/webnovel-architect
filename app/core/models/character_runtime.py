@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, Set, Optional
+from typing import Dict, Optional
 
 class CharacterRuntime(BaseModel):
     """

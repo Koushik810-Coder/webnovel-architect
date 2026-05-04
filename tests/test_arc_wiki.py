@@ -13,7 +13,6 @@ Covers:
 """
 
 from unittest.mock import patch
-import pytest
 
 from app.core.models.arc_wiki import ArcWiki
 from app.services.arc_wiki import (

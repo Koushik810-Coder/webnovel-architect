@@ -1,10 +1,9 @@
 import os
 import zipfile
 import pytest
-from unittest.mock import patch
 
 from app.core.story_manager import StoryManager
-from app.services.export import get_audio_files, export_audiobook_zip, export_audiobook_html, export_single_audiobook
+from app.services.export import get_audio_files, export_audiobook_zip, export_audiobook_html
 
 @pytest.fixture
 def mock_audio_dir(tmp_path, monkeypatch):

@@ -12,7 +12,6 @@ Covers:
 """
 
 from unittest.mock import patch
-import pytest
 
 from app.core.models.location_wiki import LocationWiki
 from app.services.location_wiki import (

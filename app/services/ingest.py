@@ -256,6 +256,12 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     active_names = intelligence.get("active_character_names", [])
     events = intelligence.get("events", [])
 
+    # 1.8 Conditional Fixer Pass
+    flags = _check_fixer_triggers(events)
+    if flags:
+        for f in flags:
+            logger.warning(f"Fixer Pass Flag - Event {f.get('event_id')}: {f.get('reason')}")
+
     # 2.5 Resolve Aliases against existing graph characters to prevent cross-chapter duplicates
     graph = get_graph_engine(story_uuid)
 
@@ -361,6 +367,16 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     location=location,
                     relation_type=relation_type,
                     intensity=intensity,
+                    timeline_type=event_data.get("timeline_type", "present"),
+                    narrative_order=event_data.get("narrative_order", idx + 1),
+                    story_time_rank=event_data.get("story_time_rank"),
+                    story_time_relative=event_data.get("story_time_relative"),
+                    flashback_depth=event_data.get("flashback_depth", 0),
+                    reveal_point=event_data.get("reveal_point", 0),
+                    spoiler_level=event_data.get("spoiler_level", 0),
+                    is_canonical=event_data.get("is_canonical", True),
+                    confidence=event_data.get("confidence", 1.0),
+                    character_roles=event_data.get("character_roles"),
                 )
 
                 # Phase 2.9: Character POV Knowledge Edges
@@ -512,7 +528,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
 
             # DPQ: evaluate graduation immediately in case they dominate the chapter
             char = runtime_db[char_id]
-            did_graduate = check_graduation_status(char, wiki_traits={"gender": wiki_entry.gender or predicted_gender})
+            did_graduate = check_graduation_status(char, wiki_traits={"gender": wiki_entry.gender or predicted_gender}, node_count=len(runtime_db))
             if did_graduate:
                 logger.info(f"New Character {char.character_id} graduated via DPQ! Assigned Voice: {char.voice_id}")
                 wiki_entry = wiki_entry.model_copy(update={"voice_id": char.voice_id})
@@ -540,7 +556,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
 
             if not event_text_block:
                 # No new events — skip the LLM call and the save entirely (no change)
-                did_graduate = check_graduation_status(char, wiki_traits={"gender": old_wiki.gender if old_wiki else None})
+                did_graduate = check_graduation_status(char, wiki_traits={"gender": old_wiki.gender if old_wiki else None}, node_count=len(runtime_db))
                 if did_graduate:
                     logger.info(f"Character {char.character_id} graduated (no events)! Voice: {char.voice_id}")
                     if old_wiki:
@@ -556,7 +572,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             profile_data = _batch_profiles.get(char_id) or update_character_profile(existing_wiki_md, event_text_block, name)
 
             # Graduation Check & Voice Locking
-            did_graduate = check_graduation_status(char, wiki_traits=profile_data)
+            did_graduate = check_graduation_status(char, wiki_traits=profile_data, node_count=len(runtime_db))
             if did_graduate:
                 logger.info(f"Character {char.character_id} graduated! Assigned Voice: {char.voice_id}")
 
@@ -609,7 +625,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # C2 FIX: Track voice_id BEFORE calling check_graduation_status so we can
             # distinguish upward graduation from de-graduation in the log message.
             old_voice = char.voice_id
-            changed = check_graduation_status(char)
+            changed = check_graduation_status(char, node_count=len(runtime_db))
             if changed and old_voice is not None and char.voice_id is None:
                 # De-graduation: score decayed below EXTRA threshold → voice released
                 logger.info(f"Character {char_id} score decayed below threshold. Voice lock released.")

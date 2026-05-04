@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from app.services.extraction import route_model, extract_chapter_intelligence
+from app.services.extraction import route_model
 
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,7 @@ from app.services.extraction import route_model, extract_chapter_intelligence
 #   score >= 7 -> llm_model (NIM, primary/complex)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="Adaptive routing currently disabled in favor of primary model + fallback chain")
 def test_adaptive_routing_straightforward(monkeypatch):
     """Low complexity score (<= 6) -> stays on the cheap last-resort model (Groq)."""
     with patch("adapters.llm_adapter.analyze_text_json", return_value={"complexity_score": 3}):
@@ -22,6 +23,7 @@ def test_adaptive_routing_straightforward(monkeypatch):
     assert not model.startswith("nvidia_nim/"), f"Expected cheap model, got: {model}"
 
 
+@pytest.mark.skip(reason="Adaptive routing currently disabled in favor of primary model + fallback chain")
 def test_adaptive_routing_complex(monkeypatch):
     """High complexity score (>= 7) -> routes to the primary model (NIM)."""
     with patch("adapters.llm_adapter.analyze_text_json", return_value={"complexity_score": 9}):

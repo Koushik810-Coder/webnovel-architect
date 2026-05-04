@@ -170,38 +170,10 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
 def route_model(text: str) -> str:
     """
     Dynamically routes text extraction to the appropriate LLM based on chapter complexity.
-    Uses a fast/cheap LLM pass to assess complexity.
-    Complex chapters (score >= 7)  -> primary model (NVIDIA NIM by default)
-    Straightforward chapters       -> last-resort/cheap model (Groq by default)
+    Currently hardcoded to always return the primary model (NVIDIA NIM) to avoid Groq rate limits.
     """
-    from app.core.config import get_llm_model, get_fallback_llm_last_resort
     primary_model = get_llm_model()
-    cheap_model = get_fallback_llm_last_resort()
-
-    try:
-        from adapters.llm_adapter import analyze_text_json
-        fast_model = cheap_model  # use cheapest model for the routing assessment itself
-
-        prompt = f"""
-        Analyze this chapter excerpt and rate its narrative complexity.
-        Respond ONLY with a JSON object containing a 'complexity_score' (integer 1-10).
-        10 = Highly complex, many characters/factions, ambiguous action, deep lore.
-        1 = Very straightforward, 1-2 characters, clean dialogue.
-
-        Excerpt:
-        {text[:3000]}
-        """
-
-        res = analyze_text_json(prompt, model=fast_model)
-        score = int(res.get("complexity_score", 5))
-
-        if score >= 7:
-            return primary_model   # NIM for complex chapters
-        else:
-            return cheap_model     # Groq for straightforward chapters
-    except Exception as e:
-        logger.warning(f"Model routing assessment failed: {e}. Defaulting to {primary_model}.")
-        return primary_model
+    return primary_model
 
 def extract_chapter_intelligence_llm(text: str, model: str = None, previous_context: str = None) -> Dict[str, Any]:
     """
@@ -232,7 +204,17 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
             {{
                 "action_summary": "Character1 discovers the ancient artifact",
                 "scene_id": "s1",
+                "timeline_type": "present",
+                "narrative_order": 1,
+                "story_time_rank": 10,
+                "story_time_relative": "before the siege",
+                "flashback_depth": 0,
+                "reveal_point": 0,
+                "spoiler_level": 0,
+                "is_canonical": true,
+                "confidence": 0.9,
                 "involved_characters": ["Character1"],
+                "character_roles": {{"Character1": "protagonist"}},
                 "known_by": ["Character2"],
                 "unaware_of": ["Character3"],
                 "relation_type": "neutral",
@@ -252,6 +234,16 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
     - 'character_genders': Map names to "male", "female", or "neutral".
     - 'active_world_terms': Unique world-building terms (locations, factions, magical systems, ranks).
     - 'scene_id': A unique identifier for the scene this event occurs in (e.g. "s1", "s2"). Group events that happen in the same continuous location and time into the same scene_id.
+    - 'timeline_type': 'present' | 'flashback' | 'memory' | 'dream' | 'rumor' | 'imagined'.
+    - 'narrative_order': Position within the chapter (1, 2, 3...).
+    - 'story_time_rank': Relative in-universe chronology integer; null if ambiguous.
+    - 'story_time_relative': Fallback string for time, e.g., 'before the siege'.
+    - 'flashback_depth': 0=present, 1=flashback, 2=flashback-within-flashback.
+    - 'reveal_point': Chapter at which this event becomes spoiler-safe (0=immediate).
+    - 'spoiler_level': 0=safe, 1=mild spoiler, 2=major twist.
+    - 'is_canonical': false for imagined/misremembered/lied-about events, true otherwise.
+    - 'confidence': LLM-estimated extraction certainty (0.0-1.0).
+    - 'character_roles': Object mapping character name to role string (protagonist/antagonist/witness/cause/victim/bystander).
     - 'events': Extract ALL meaningful scenes, not just climaxes. Aim for 1 event per
       distinct scene or conversation shift. Each sustained conversation between a unique
       pair/group of characters should be its own event.
@@ -279,7 +271,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
     "1. 'Tomorrow' is a time reference, ignore. 2. 'Lord Vael' -> 'Vael'. 3. 'Upper Realm' = world term. 4. Event: Musing preparation. Intensity 1."
     {context_block}
     Chapter Text:
-    {text}
+    {_prefilter_text(text)}
     """
     
     logger.debug(f"Starting LLM-based intelligence extraction using {model}")

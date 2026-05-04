@@ -620,7 +620,7 @@ elif page == "Wiki Memory":
                 # Full-width wiki content — no column wrapper
                 st.markdown(content, unsafe_allow_html=True)
         elif not os.path.exists(wiki_dir):
-            st.warning(f"Wiki directory not found. Process some chapters first to generate character wikis.")
+            st.warning("Wiki directory not found. Process some chapters first to generate character wikis.")
         else:
             st.info("No wiki entries found yet. Ingest some chapters to populate the wiki.")
 

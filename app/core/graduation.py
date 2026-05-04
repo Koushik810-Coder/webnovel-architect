@@ -13,21 +13,23 @@ class GraduationLevel(str, Enum):
 DELTA_UPPER = 0.15       # Below this → EXTRA (no voice)
 MAIN_CAST_THRESHOLD = 0.50  # Above this → MAIN_CAST (locked voice)
 
-def evaluate_graduation(confidence_score: float) -> GraduationLevel:
+def evaluate_graduation(confidence_score: float, node_count: int = 1) -> GraduationLevel:
+    from adapters.graph_adapter import GraphProvider
+    dynamic_threshold = GraphProvider.get_dynamic_main_cast_threshold(node_count)
     if confidence_score < DELTA_UPPER:
         return GraduationLevel.EXTRA
-    elif confidence_score < MAIN_CAST_THRESHOLD:
+    elif confidence_score < dynamic_threshold:
         return GraduationLevel.EVOLVING
     else:
         return GraduationLevel.MAIN_CAST
 
-def check_graduation_status(character: CharacterRuntime, wiki_traits: Optional[Dict[str, str]] = None) -> bool:
+def check_graduation_status(character: CharacterRuntime, wiki_traits: Optional[Dict[str, str]] = None, node_count: int = 1) -> bool:
     """
     Checks if character should graduate to a new level.
     If graduating to MAIN_CAST, locks a voice ID.
     Returns True if state changed.
     """
-    new_level = evaluate_graduation(character.confidence_score)
+    new_level = evaluate_graduation(character.confidence_score, node_count=node_count)
     
     # We don't store "current level" on Runtime yet, but we can infer or add it.
     # For now, the critical check is voice locking and unlocking.
