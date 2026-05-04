@@ -57,6 +57,81 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- Premium Custom Styling ---
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    
+    /* Base Font & Global Smoothing */
+    html, body, [class*="css"]  {
+        font-family: 'Inter', sans-serif !important;
+        -webkit-font-smoothing: antialiased;
+    }
+    
+    /* Premium Header Gradients */
+    h1, h2, h3 {
+        background: -webkit-linear-gradient(45deg, #4a90e2, #b92b27);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 800 !important;
+        letter-spacing: -0.5px;
+    }
+    
+    /* Floating Glassmorphism Metric Cards */
+    div[data-testid="stMetric"] {
+        background: rgba(30, 30, 46, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(74, 144, 226, 0.15);
+    }
+    
+    /* Dynamic Hover Buttons */
+    div.stButton > button {
+        background: linear-gradient(135deg, #4a90e2 0%, #b92b27 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.6rem 1.2rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.3px;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 6px 20px rgba(185, 43, 39, 0.4) !important;
+    }
+    div.stButton > button:active {
+        transform: translateY(1px) scale(0.98) !important;
+    }
+    
+    /* Stylish Inputs & Expanders */
+    div[data-testid="stExpander"] {
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 10px !important;
+        background: rgba(20, 20, 30, 0.4) !important;
+    }
+    .stTextInput > div > div > input:focus, .stTextArea > div > div > textarea:focus {
+        border-color: #4a90e2 !important;
+        box-shadow: 0 0 10px rgba(74, 144, 226, 0.3) !important;
+    }
+    
+    /* Sidebar Polish */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #111118 0%, #1a1a2e 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- Sidebar Navigation ---
 
 # Initialize StoryManager State
