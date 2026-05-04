@@ -23,7 +23,7 @@ Use this document to track the progress of features outlined in `Future_Ideas.md
 - [x] **2.6a Wiki Page Versioning**
 - [x] **2.7 Interactive Story-World Chatbot UI**
 - [x] **2.8 "Wiki as a Query Language"**
-- [ ] **2.9 Character POV Knowledge Edges**
+- [x] **2.9 Character POV Knowledge Edges**
 - [ ] **2.10 Export & Package Audiobook Finalizer**
 
 ## Phase 3 — Infrastructure Upgrades (Deferred)
