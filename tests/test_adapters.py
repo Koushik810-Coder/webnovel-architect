@@ -29,7 +29,7 @@ def test_analyze_text_failure():
     
     with patch.dict('sys.modules', {'litellm': mock_litellm}):
         result = analyze_text("This is test text.", "test-model")
-        assert result and "API Fallback:" in result
+        assert result and "All LLM tiers exhausted" in result
 
 def test_get_model_info():
     mock_litellm = MagicMock()

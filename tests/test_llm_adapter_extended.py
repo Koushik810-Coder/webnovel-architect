@@ -148,7 +148,7 @@ class TestAnalyzeText:
             result = llm_mod.analyze_text("prompt", model="groq/test")
 
         assert isinstance(result, str)
-        assert "API Fallback" in result
+        assert "All LLM tiers exhausted" in result
 
 
 # ---------------------------------------------------------------------------

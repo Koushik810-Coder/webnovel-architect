@@ -13,7 +13,7 @@ def test_royal_road_scraper_can_handle():
     assert scraper.can_handle_index_url("https://www.royalroad.com/fiction/1234/story-slug") is True
     assert scraper.can_handle_index_url("https://www.royalroad.com/fiction/1234/story/chapter/5678/title") is False
 
-@patch('app.services.scrapers.royalroad_scraper.requests.get')
+@patch('requests.get')
 def test_royal_road_scrape_index(mock_get):
     scraper = RoyalRoadScraper()
 
@@ -44,7 +44,7 @@ def test_royal_road_scrape_index(mock_get):
     assert result[0]["url"] == "https://www.royalroad.com/fiction/1/story/chapter/100/prologue"
     assert result[1]["title"] == "Chapter One"
 
-@patch('app.services.scrapers.royalroad_scraper.requests.get')
+@patch('requests.get')
 def test_royal_road_scraper_extraction(mock_get):
     scraper = RoyalRoadScraper()
     

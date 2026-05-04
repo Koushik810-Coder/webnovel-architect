@@ -233,6 +233,8 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
                 "action_summary": "Character1 discovers the ancient artifact",
                 "scene_id": "s1",
                 "involved_characters": ["Character1"],
+                "known_by": ["Character2"],
+                "unaware_of": ["Character3"],
                 "relation_type": "neutral",
                 "intensity": 3,
                 "pre_conditions": "Character1 is searching the ruins.",
@@ -265,6 +267,8 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
       Each location change or time-jump should produce a new event.
       Minimum expected: 1 event per ~10 dialogue exchanges. Aim for completeness.
     - 'relation_type' must be ONE of: "friendly", "hostile", "combat", "neutral", "mentor", "romantic", "betrayal".
+    - 'known_by': Characters who learn of or overhear this event, but aren't direct participants.
+    - 'unaware_of': Characters who are explicitly kept ignorant, lied to, or hidden from this event.
     - 'causes_event_indexes': Array of zero-based integers linking to other events in the list.
       Only link events where one directly causes or enables the other.
 

@@ -363,6 +363,23 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     intensity=intensity,
                 )
 
+                # Phase 2.9: Character POV Knowledge Edges
+                # Process 'known_by'
+                known_by = event_data.get("known_by", [])
+                for kb in known_by:
+                    kb_canon = full_alias_map.get(kb, kb)
+                    kb_id = normalize_id(kb_canon)
+                    if kb_id in all_graph_char_ids or kb_id in active_char_ids:
+                        graph.add_knowledge_edge(kb_id, event_id, "knows")
+
+                # Process 'unaware_of'
+                unaware_of = event_data.get("unaware_of", [])
+                for uo in unaware_of:
+                    uo_canon = full_alias_map.get(uo, uo)
+                    uo_id = normalize_id(uo_canon)
+                    if uo_id in all_graph_char_ids or uo_id in active_char_ids:
+                        graph.add_knowledge_edge(uo_id, event_id, "unaware_of")
+
                 # Add event to scene
                 scene_id = event_data.get("scene_id")
                 if scene_id:

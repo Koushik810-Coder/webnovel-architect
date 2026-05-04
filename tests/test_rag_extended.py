@@ -66,14 +66,16 @@ class TestRagAliasMatching:
         """Querying by an alias ('Lord Vael') must retrieve that character's events."""
         captured = []
 
-        def spy_analyze(prompt, model=None):
+        def spy_analyze(prompt, model=None, **kwargs):
             captured.append(prompt)
             return "Lord Vael is dangerous."
 
-        with patch("app.services.rag.get_graph_engine", return_value=alias_graph):
-            with patch("app.services.rag.analyze_text", side_effect=spy_analyze):
-                from app.services.rag import query_story
-                query_story("rag_ext_story", "What did Lord Vael do?")
+        with patch("app.services.rag.get_graph_engine", return_value=alias_graph), \
+             patch("app.services.wiki_filter.get_graph_engine", return_value=alias_graph), \
+             patch("app.services.rag.analyze_text", side_effect=spy_analyze), \
+             patch("app.services.rag.analyze_text_json", return_value={}):
+            from app.services.rag import query_story
+            query_story("rag_ext_story", "What did Lord Vael do?")
 
         assert captured, "analyze_text was never called"
         prompt = captured[0]
@@ -92,14 +94,16 @@ class TestRagFallback:
         """When no entity found, fallback must use at most 15 recent events."""
         captured = []
 
-        def spy_analyze(prompt, model=None):
+        def spy_analyze(prompt, model=None, **kwargs):
             captured.append(prompt)
             return "General answer."
 
-        with patch("app.services.rag.get_graph_engine", return_value=multi_chapter_graph):
-            with patch("app.services.rag.analyze_text", side_effect=spy_analyze):
-                from app.services.rag import query_story
-                query_story("rag_multi_story", "What is happening in the world?")
+        with patch("app.services.rag.get_graph_engine", return_value=multi_chapter_graph), \
+             patch("app.services.wiki_filter.get_graph_engine", return_value=multi_chapter_graph), \
+             patch("app.services.rag.analyze_text", side_effect=spy_analyze), \
+             patch("app.services.rag.analyze_text_json", return_value={}):
+            from app.services.rag import query_story
+            query_story("rag_multi_story", "What is happening in the world?")
 
         prompt = captured[0]
         # Count "Chapter X" occurrences — should be at most 15
@@ -110,14 +114,16 @@ class TestRagFallback:
         """The fallback must prefer most-recent chapters (highest chapter_id)."""
         captured = []
 
-        def spy_analyze(prompt, model=None):
+        def spy_analyze(prompt, model=None, **kwargs):
             captured.append(prompt)
             return "."
 
-        with patch("app.services.rag.get_graph_engine", return_value=multi_chapter_graph):
-            with patch("app.services.rag.analyze_text", side_effect=spy_analyze):
-                from app.services.rag import query_story
-                query_story("rag_multi_story", "What is the latest development?")
+        with patch("app.services.rag.get_graph_engine", return_value=multi_chapter_graph), \
+             patch("app.services.wiki_filter.get_graph_engine", return_value=multi_chapter_graph), \
+             patch("app.services.rag.analyze_text", side_effect=spy_analyze), \
+             patch("app.services.rag.analyze_text_json", return_value={}):
+            from app.services.rag import query_story
+            query_story("rag_multi_story", "What is the latest development?")
 
         prompt = captured[0]
         # Chapter 20 (most recent) must appear; Chapter 1 (oldest) must NOT
@@ -135,14 +141,15 @@ class TestQueryCharacterProfileSchema:
         """The RAG profile enrichment prompt must ask for 'relationships'."""
         captured_prompts = []
 
-        def spy_json(prompt, model=None):
+        def spy_json(prompt, model=None, **kwargs):
             captured_prompts.append(prompt)
             return {}
 
-        with patch("app.services.rag.get_graph_engine", return_value=alias_graph):
-            with patch("adapters.llm_adapter.analyze_text_json", side_effect=spy_json):
-                from app.services.rag import query_character_profile
-                query_character_profile("rag_ext_story", "master_vael", "Master Vael")
+        with patch("app.services.rag.get_graph_engine", return_value=alias_graph), \
+             patch("app.services.wiki_filter.get_graph_engine", return_value=alias_graph), \
+             patch("adapters.llm_adapter.analyze_text_json", side_effect=spy_json):
+            from app.services.rag import query_character_profile
+            query_character_profile("rag_ext_story", "master_vael", "Master Vael")
 
         assert captured_prompts, "analyze_text_json was never called"
         prompt = captured_prompts[0]
@@ -163,7 +170,8 @@ class TestQueryCharacterProfileSchema:
         gp.add_character("ghost", {"display_name": "Ghost"})
         # No events added for ghost
 
-        with patch("app.services.rag.get_graph_engine", return_value=gp):
+        with patch("app.services.rag.get_graph_engine", return_value=gp), \
+             patch("app.services.wiki_filter.get_graph_engine", return_value=gp):
             from app.services.rag import query_character_profile
             result = query_character_profile("empty_char_story", "ghost", "Ghost")
 
@@ -189,10 +197,12 @@ class TestTimeCotOrdering:
             gp.add_event(f"ev_{ch}", f"Event in chapter {ch}", ["hero"], chapter_id=ch)
 
         captured = []
-        with patch("app.services.rag.get_graph_engine", return_value=gp):
-            with patch("app.services.rag.analyze_text", side_effect=lambda p, model=None: captured.append(p) or ""):
-                from app.services.rag import query_story
-                query_story("timecot_story", "What did Hero do?")
+        with patch("app.services.rag.get_graph_engine", return_value=gp), \
+             patch("app.services.wiki_filter.get_graph_engine", return_value=gp), \
+             patch("app.services.rag.analyze_text", side_effect=lambda p, model=None, **kwargs: captured.append(p) or ""), \
+             patch("app.services.rag.analyze_text_json", return_value={}):
+            from app.services.rag import query_story
+            query_story("timecot_story", "What did Hero do?")
 
         prompt = captured[0]
         positions = []

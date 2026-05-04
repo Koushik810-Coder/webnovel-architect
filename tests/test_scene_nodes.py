@@ -58,7 +58,7 @@ class TestSceneNodes:
         import app.core.story_manager as sm
         monkeypatch.setattr(sm.StoryManager, "DATA_DIR", str(tmp_path))
         
-        def mock_extract(text):
+        def mock_extract(text, previous_context=None):
             return {
                 "active_character_names": ["Hero"],
                 "events": [
