@@ -116,7 +116,7 @@ def _run_with_retry(
     # Use request_timeout, litellm will pass it to httpx. Avoid `timeout` kwarg to bypass buggy internal threadpool
     kwargs.setdefault("request_timeout", 180.0)
     kwargs.setdefault("max_retries", 0)
-    num_keys = max(1, len(_groq_keys)) if _groq_keys else 1
+    num_keys = max(1, len(_groq_keys)) if _groq_keys and target_model.startswith("groq/") else 1
     last_err: Exception | None = None
 
     for attempt in range(1, max_attempts + 1):
@@ -163,12 +163,17 @@ def _run_with_retry(
                 break
             if attempt < max_attempts:
                 if any(x in type(e).__name__ for x in ["RateLimitError", "ServiceUnavailableError"]) or any(x in str(e) for x in ["429", "503", "queue full"]):
-                    if attempt % num_keys == 0:
-                        wait_time = 25
-                        logger.warning(f"All keys exhausted or service overloaded. Waiting {wait_time}s before next cycle...")
-                        time.sleep(wait_time)
+                    if target_model.startswith("groq/"):
+                        if attempt % num_keys == 0:
+                            wait_time = 25
+                            logger.warning(f"All keys exhausted or service overloaded. Waiting {wait_time}s before next cycle...")
+                            time.sleep(wait_time)
+                        else:
+                            time.sleep(1)
                     else:
-                        time.sleep(1)
+                        wait_time = min(60, 2 ** attempt)
+                        logger.warning(f"Rate limited on {target_model}. Waiting {wait_time}s...")
+                        time.sleep(wait_time)
                 else:
                     time.sleep(2 ** attempt)
 
@@ -212,7 +217,7 @@ def analyze_text(text: str, model: str = None, temperature: float = 0.1, chat_hi
     extra_kwargs = {"temperature": temperature}
 
     # Tier 1: Primary model (NVIDIA NIM)
-    success, result = _try_model(model, messages, max_attempts=2, extra_kwargs=extra_kwargs)
+    success, result = _try_model(model, messages, max_attempts=5, extra_kwargs=extra_kwargs)
     if success:
         return result
 
@@ -273,7 +278,7 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
     last_resort_model = get_fallback_llm_last_resort()
 
     # Tier 1: Primary model (NVIDIA NIM)
-    success, result = _try_model(model, messages, max_attempts=2, extra_kwargs=extra_kwargs, content_transform=_parse_json)
+    success, result = _try_model(model, messages, max_attempts=5, extra_kwargs=extra_kwargs, content_transform=_parse_json)
     if success:
         _cache_put(cache_key, result)
         return result

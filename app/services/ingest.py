@@ -683,6 +683,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
             # Re-fetch graph to get arc nodes added by detect_arcs
             # We iterate over all arc nodes to ensure wiki pages exist for all of them.
             # build_arc_page has a hash check to skip redundant LLM calls.
+            graph = get_graph_engine(story_uuid)
             for _node, _ndata in graph.graph.nodes(data=True):
                 if _ndata.get("type") == "arc":
                     try:

@@ -19,6 +19,9 @@ def _call_llm_for_arcs(events_chunk):
         if isinstance(result, list):
             return result
         if isinstance(result, dict):
+            # Check if it returned a single arc object directly
+            if "label" in result and "event_ids" in result:
+                return [result]
             # Check common keys LLMs use when they decide to wrap the array
             for key in ["arcs", "narrative_arcs", "story_arcs", "events"]:
                 if key in result and isinstance(result[key], list):
