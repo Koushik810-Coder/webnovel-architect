@@ -503,9 +503,10 @@ elif page == "Wiki Memory":
             with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
                 content = f.read()
 
-            col1, col2, col3 = st.columns([6, 2, 2])
+            # Buttons row: spacer + two action buttons right-aligned
+            _, col_rag, col_export = st.columns([5, 2, 2])
 
-            with col2:
+            with col_rag:
                 from app.services.wiki import enrich_wiki_from_rag
                 if st.button("✨ Improve with RAG", use_container_width=True):
                     with st.spinner("Enriching wiki using Graph RAG (respecting filters)..."):
@@ -524,7 +525,7 @@ elif page == "Wiki Memory":
                         except Exception as e:
                             st.error(f"Failed to enrich wiki: {e}")
 
-            with col3:
+            with col_export:
                 st.download_button(
                     label="📥 Export Wiki Entry",
                     data=content,
@@ -534,8 +535,8 @@ elif page == "Wiki Memory":
                 )
 
             st.markdown("---")
-            with col1:
-                st.markdown(content, unsafe_allow_html=True)
+            # Full-width wiki content — no column wrapper
+            st.markdown(content, unsafe_allow_html=True)
     elif not os.path.exists(wiki_dir):
         st.warning(f"Wiki directory not found. Process some chapters first to generate character wikis.")
     else:
