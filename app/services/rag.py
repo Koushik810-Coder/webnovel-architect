@@ -1,5 +1,5 @@
 from adapters.graph_adapter import get_graph_engine
-from adapters.llm_adapter import analyze_text
+from adapters.llm_adapter import analyze_text, analyze_text_json
 import re
 
 from app.core.logger import get_logger
@@ -16,7 +16,16 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
 
     graph = get_graph_engine(story_uuid)
 
-    # 1. Deterministic Entity Extraction from Query
+    # 1. Intent Extraction via LLM
+    intent_prompt = f"Extract the core entities from this query:\n'{query}'\nRespond ONLY with a JSON object containing arrays for 'characters', 'locations', and 'concepts'."
+    try:
+        intent = analyze_text_json(intent_prompt, model=model) or {}
+    except Exception:
+        intent = {}
+        
+    query_locations = set(intent.get("locations", []))
+
+    # 1b. Deterministic Entity Extraction from Query
     query_entities = set()
     query_lower = query.lower()
     
@@ -58,7 +67,28 @@ def query_story(story_uuid: str, query: str, model: str = None) -> str:
                         "participants": [p.replace("_", " ").title() for p in involved]
                     })
                     
-    # 2b. General Question Fallback Retrieval (Token Preserving)
+    # 2b. Location/Scene Retrieval
+    scene_nodes = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "scene"]
+    for loc in query_locations:
+        loc_lower = loc.lower()
+        for scene_id, scene_data in scene_nodes:
+            if loc_lower in scene_data.get("location", "").lower():
+                for event_id, _, edge_data in graph.graph.in_edges(scene_id, data=True):
+                    if edge_data.get("relation") == "OCCURS_IN" and event_id not in seen_events:
+                        if graph.graph.has_node(event_id) and graph.graph.nodes[event_id].get("type") == "event":
+                            seen_events.add(event_id)
+                            event_data = graph.graph.nodes[event_id]
+                            involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
+                            retrieved_events.append({
+                                "chapter_id": event_data.get("chapter_id", 0),
+                                "description": event_data.get("description", ""),
+                                "pre_conditions": event_data.get("pre_conditions", ""),
+                                "post_conditions": event_data.get("post_conditions", ""),
+                                "location": event_data.get("location", "Unknown"),
+                                "participants": [p.replace("_", " ").title() for p in involved]
+                            })
+
+    # 2c. General Question Fallback Retrieval (Token Preserving)
     if not retrieved_events:
         logger.info("No specific entities found in query. Falling back to the 15 most recent global events.")
         

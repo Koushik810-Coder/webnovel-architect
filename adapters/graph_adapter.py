@@ -51,6 +51,19 @@ class GraphProvider:
         location: str = "Unknown",
         relation_type: str = "participant",
         intensity: int = 1,
+        # 1.1 Dual-timeline fields
+        timeline_type: str = "present",
+        narrative_order: int = 0,
+        story_time_rank: "int | None" = None,
+        story_time_relative: "str | None" = None,
+        flashback_depth: int = 0,
+        # 1.2 Spoiler & canonicity fields
+        reveal_point: int = 0,
+        spoiler_level: int = 0,
+        is_canonical: bool = True,
+        confidence: float = 1.0,
+        # 1.6 Character roles
+        character_roles: "dict | None" = None,
     ):
         """Adds an event node (DEU) and edges to involved entities.
 
@@ -58,7 +71,19 @@ class GraphProvider:
             relation_type: Qualitative relationship type (e.g. 'hostile', 'friendly', 'combat').
             intensity: Narrative intensity weight 1-5 (1=minor, 5=climactic).
                        Used as the edge weight for weighted PageRank.
+            timeline_type: 'present' | 'flashback' | 'memory' | 'dream' | 'rumor' | 'imagined'
+            narrative_order: Position within the chapter (1, 2, 3…)
+            story_time_rank: Relative in-universe chronology; None if ambiguous.
+            story_time_relative: Fallback description e.g. 'before the siege'.
+            flashback_depth: 0=present, 1=flashback, 2=flashback-within-flashback.
+            reveal_point: Chapter at which this event becomes spoiler-safe (0=immediate).
+            spoiler_level: 0=safe, 1=mild spoiler, 2=major twist.
+            is_canonical: False for imagined/misremembered/lied-about events.
+            confidence: LLM-estimated extraction certainty (0.0–1.0).
+            character_roles: Dict mapping entity_id → role string (protagonist/antagonist/
+                             witness/cause/victim/bystander).
         """
+        _roles = character_roles or {}
         self.graph.add_node(
             event_id,
             type="event",
@@ -67,14 +92,27 @@ class GraphProvider:
             pre_conditions=pre_conditions,
             post_conditions=post_conditions,
             location=location,
+            # 1.1
+            timeline_type=timeline_type,
+            narrative_order=narrative_order,
+            story_time_rank=story_time_rank,
+            story_time_relative=story_time_relative,
+            flashback_depth=flashback_depth,
+            # 1.2
+            reveal_point=reveal_point,
+            spoiler_level=spoiler_level,
+            is_canonical=is_canonical,
+            confidence=confidence,
         )
         for entity in involved_entities:
             if self.graph.has_node(entity):
+                role = _roles.get(entity, "participant")
                 self.graph.add_edge(
                     entity, event_id,
                     relation=relation_type,
                     chapter_id=chapter_id,
                     weight=float(intensity),
+                    role=role,  # 1.6
                 )
                 self.graph.add_edge(
                     event_id, entity,
@@ -88,6 +126,35 @@ class GraphProvider:
         if self.graph.has_node(source_event_id) and self.graph.has_node(target_event_id):
             if self.graph.nodes[source_event_id].get("type") == "event" and self.graph.nodes[target_event_id].get("type") == "event":
                 self.graph.add_edge(source_event_id, target_event_id, relation=relation_type)
+
+    def add_arc(self, arc_id: str, label: str, event_ids: list, chapter_start: int, chapter_end: int):
+        """Adds an arc node grouping several events."""
+        self.graph.add_node(
+            arc_id, 
+            type="arc", 
+            label=label,
+            event_ids=event_ids,
+            chapter_start=chapter_start,
+            chapter_end=chapter_end
+        )
+        for ev_id in event_ids:
+            if self.graph.has_node(ev_id):
+                self.graph.add_edge(arc_id, ev_id, relation="contains")
+
+    def add_scene(self, scene_id: str, chapter_id: int, location: str, summary: str):
+        """Adds a scene node."""
+        self.graph.add_node(
+            scene_id,
+            type="scene",
+            chapter_id=chapter_id,
+            location=location,
+            summary=summary
+        )
+
+    def add_event_to_scene(self, event_id: str, scene_id: str):
+        """Links an event to the scene it occurs in."""
+        if self.graph.has_node(event_id) and self.graph.has_node(scene_id):
+            self.graph.add_edge(event_id, scene_id, relation="OCCURS_IN")
 
     def add_or_update_character_edge(
         self,
@@ -119,6 +186,9 @@ class GraphProvider:
                 edge_data["last_seen_chapter"] = chapter_id
                 edge_data["last_relation_type"] = relation_type
                 edge_data["weight"] = edge_data.get("weight", 0.0) + float(intensity)
+                # 1.9: append snapshot to history instead of overwriting
+                history = edge_data.setdefault("relation_history", [])
+                history.append({"chapter": chapter_id, "relation": relation_type})
             else:
                 self.graph.add_edge(
                     src, dst,
@@ -129,6 +199,8 @@ class GraphProvider:
                     first_seen_chapter=chapter_id,
                     last_seen_chapter=chapter_id,
                     weight=float(intensity),
+                    # 1.9: start relation history
+                    relation_history=[{"chapter": chapter_id, "relation": relation_type}],
                 )
 
     def get_character_events(self, name: str) -> list:
@@ -376,3 +448,19 @@ def get_graph_engine(story_uuid: str):
     if story_uuid not in _graph_instances:
         _graph_instances[story_uuid] = GraphProvider(story_uuid)
     return _graph_instances[story_uuid]
+
+
+# 1.7  Dynamic PageRank threshold scaling
+# M_base is the MAIN_CAST_THRESHOLD tuned for a small graph.
+# As node count N grows, the threshold scales down via sqrt so late-series
+# characters can still reach graduation, while the floor at DELTA_UPPER
+# prevents the threshold from becoming trivially small.
+_MAIN_CAST_BASE = 0.50  # same as graduation.MAIN_CAST_THRESHOLD for small N
+
+# Expose as a static method so graduation.py can call it without a full instance.
+GraphProvider.get_dynamic_main_cast_threshold = staticmethod(
+    lambda node_count: max(
+        __import__('app.core.graduation', fromlist=['DELTA_UPPER']).DELTA_UPPER,
+        _MAIN_CAST_BASE / (node_count ** 0.5),
+    )
+)

@@ -2,6 +2,8 @@ import json
 import time
 import os
 import itertools
+import hashlib
+import sqlite3
 from typing import Any, Callable, Optional
 
 from app.core.logger import get_logger
@@ -9,6 +11,59 @@ from app.core.config import get_llm_model
 from app.core.utils import truncate_for_log as _truncate
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# 1.3 Persistent LLM prompt cache
+# ---------------------------------------------------------------------------
+# Cache location: $LLM_CACHE_DIR/llm_cache.db (defaults to project data dir)
+
+def _get_cache_db_path() -> str:
+    cache_dir = os.environ.get("LLM_CACHE_DIR", os.path.join("data", "_cache"))
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, "llm_cache.db")
+
+
+def _cache_key(prompt: str, model: str) -> str:
+    return hashlib.sha256(f"{model}||{prompt}".encode()).hexdigest()
+
+
+def _cache_get(key: str) -> "dict | None":
+    """Return cached result or None.  Returns None immediately if LLM_CACHE_DIR is unset."""
+    if "LLM_CACHE_DIR" not in os.environ:
+        return None
+    try:
+        db = _get_cache_db_path()
+        con = sqlite3.connect(db)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS llm_cache (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        row = con.execute("SELECT value FROM llm_cache WHERE key=?", (key,)).fetchone()
+        con.close()
+        if row:
+            return json.loads(row[0])
+    except Exception as e:
+        logger.debug(f"LLM cache read error (non-fatal): {e}")
+    return None
+
+
+def _cache_put(key: str, value: dict) -> None:
+    """Write to cache.  No-op if LLM_CACHE_DIR is unset."""
+    if "LLM_CACHE_DIR" not in os.environ:
+        return
+    try:
+        db = _get_cache_db_path()
+        con = sqlite3.connect(db)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS llm_cache (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        con.execute(
+            "INSERT OR REPLACE INTO llm_cache (key, value) VALUES (?, ?)",
+            (key, json.dumps(value)),
+        )
+        con.commit()
+        con.close()
+    except Exception as e:
+        logger.debug(f"LLM cache write error (non-fatal): {e}")
 
 # --- Groq Key Rotation ---
 _groq_keys = [v.strip() for k, v in os.environ.items() if k.startswith("GROQ_API_KEY") and v.strip()]
@@ -136,9 +191,20 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
     Analyzes text using the specified LLM model and expects a JSON response.
     Uses temperature=0 by default for fully deterministic, reproducible outputs.
     The same input will always produce the same structured extraction result.
+
+    Results are cached in a local SQLite DB keyed on hash(model + prompt) so
+    reprocessing identical chapters (common during debugging / re-ingestion)
+    costs $0.00 and completes in microseconds.
     """
     if not model:
         model = get_llm_model()
+
+    # 1.3: Check cache before hitting the API
+    cache_key = _cache_key(text, model)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        logger.debug(f"LLM cache HIT [{model}] key={cache_key[:12]}...")
+        return cached
 
     system_prompt = (
         "You are a helpful assistant. You must respond ONLY with valid JSON. "
@@ -154,6 +220,7 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
         model, messages, extra_kwargs=extra_kwargs, content_transform=_parse_json
     )
     if success:
+        _cache_put(cache_key, result)  # 1.3: persist to cache
         return result
 
     # D3 FIX: Read fallback from config.yaml instead of hardcoding.
@@ -168,6 +235,7 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
             extra_kwargs=extra_kwargs, content_transform=_parse_json,
         )
         if success:
+            _cache_put(cache_key, result)  # 1.3: persist fallback result too
             return result
 
     logger.critical(f"LLM JSON Extraction failed after all attempts: {str(result)}")

@@ -7,6 +7,48 @@ from app.core.config import get_llm_model
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# 1.5  Extraction pre-filtering
+# ---------------------------------------------------------------------------
+# Action verbs and dialogue markers that indicate event-dense paragraphs.
+_ACTION_VERBS = frozenset([
+    "attacked", "struck", "fled", "shouted", "grabbed", "rushed", "declared",
+    "stabbed", "shot", "fought", "screamed", "killed", "escaped", "betrayed",
+    "discovered", "revealed", "collapsed", "charged", "blocked", "cut",
+    "punched", "jumped", "ran", "cried", "ordered", "demanded", "pleaded",
+])
+_DIALOGUE_MARKER = re.compile(r'["\u201c\u201d]')  # straight and curly quotes
+
+
+def _prefilter_text(text: str, min_score: int = 1) -> str:
+    """Return only event-dense paragraphs from *text*.
+
+    Scores each paragraph by counting action verb hits and dialogue markers.
+    Paragraphs with score >= *min_score* are kept; the rest are dropped.
+    Returns the filtered text joined by double newlines, or the full text if
+    nothing passes (prevents zero-context edge case).
+
+    Estimated token reduction: 30–50% on filler-heavy webnovel chapters.
+    """
+    if not text:
+        return text
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if not paragraphs:
+        return text
+
+    kept = []
+    for para in paragraphs:
+        words_lower = para.lower().split()
+        verb_hits = sum(1 for w in words_lower if w.rstrip(".,!?;:") in _ACTION_VERBS)
+        dialogue_hits = len(_DIALOGUE_MARKER.findall(para))
+        score = verb_hits + (1 if dialogue_hits >= 2 else 0)
+        if score >= min_score:
+            kept.append(para)
+
+    # Safety: never return an empty string — fall back to full text
+    return "\n\n".join(kept) if kept else text
+
 # Load spaCy model at the module level
 # Disable unused components for performance
 try:
@@ -149,6 +191,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
         "events": [
             {{
                 "action_summary": "Character1 discovers the ancient artifact",
+                "scene_id": "s1",
                 "involved_characters": ["Character1"],
                 "relation_type": "neutral",
                 "intensity": 3,
@@ -166,6 +209,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = None) -> Dict[str, 
     - 'active_character_names': Unique character names. Normalize titles (e.g., return "Stark" instead of "Lord Stark").
     - 'character_genders': Map names to "male", "female", or "neutral".
     - 'active_world_terms': Unique world-building terms (locations, factions, magical systems, ranks).
+    - 'scene_id': A unique identifier for the scene this event occurs in (e.g. "s1", "s2"). Group events that happen in the same continuous location and time into the same scene_id.
     - 'events': Extract ALL meaningful scenes, not just climaxes. Aim for 1 event per
       distinct scene or conversation shift. Each sustained conversation between a unique
       pair/group of characters should be its own event.

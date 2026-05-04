@@ -137,6 +137,39 @@ class EdgeAdapter(TTSProvider):
             raise
 
 
+# 4a. 1.4 Audio generation cache — wraps any TTSProvider
+import hashlib as _hashlib
+import shutil as _shutil
+
+class CachedTTSAdapter(TTSProvider):
+    """Wraps any TTSProvider with an on-disk MP3 cache.
+
+    Cache key: sha256(voice_id + text).  If the cached fragment already exists
+    in ``cache_dir``, it is copied to ``output_path`` without calling the engine.
+    This makes repeated phrases (narration intros, common dialogue) instant.
+    """
+
+    def __init__(self, inner: TTSProvider, cache_dir: str = "data/_tts_cache"):
+        self._inner = inner
+        self._cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+
+    def _cache_path(self, voice_id: str, text: str) -> str:
+        key = _hashlib.sha256(f"{voice_id}||{text}".encode()).hexdigest()
+        return os.path.join(self._cache_dir, f"{key}.mp3")
+
+    def generate_audio(self, text: str, voice_id: str, output_path: str, **kwargs):
+        cached = self._cache_path(voice_id, text)
+        if os.path.exists(cached):
+            logger.debug(f"[TTS Cache HIT] voice={voice_id} path={output_path}")
+            _shutil.copy2(cached, output_path)
+            return
+        self._inner.generate_audio(text, voice_id, output_path, **kwargs)
+        # Save to cache only if the engine actually wrote the file
+        if os.path.exists(output_path):
+            _shutil.copy2(output_path, cached)
+
+
 # 4. The Factory: Decides which one to give you
 def get_tts_engine(config_type):
     """

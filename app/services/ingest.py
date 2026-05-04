@@ -16,6 +16,7 @@ from app.services.wiki import (
     get_character_wiki_content,
     apply_profile_updates,
 )
+from app.services.arc_detector import detect_arcs
 from app.core.graduation import check_graduation_status
 from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
@@ -126,6 +127,59 @@ def save_index_state(story_uuid: str, state: Dict):
 
 
 # ---------------------------------------------------------------------------
+# 1.8  Conditional Fixer Pass — deterministic trigger detection (no LLM)
+# ---------------------------------------------------------------------------
+
+def _check_fixer_triggers(events: list) -> list:
+    """Scan extracted events for deterministically-detectable anomalies.
+
+    Returns a list of flag dicts: ``[{"event_id": ..., "reason": ...}, ...]``.
+    An empty list means the event set is clean.
+
+    Trigger conditions (all detectable without an LLM call):
+    - Missing / None ``timeline_type``
+    - A flashback whose ``story_time_rank`` is *higher* than a subsequent
+      present-timeline event (causal ordering violation)
+    """
+    flags: list = []
+
+    for evt in events:
+        evt_id = evt.get("id", "<unknown>")
+
+        # Trigger 1: missing timeline_type
+        if not evt.get("timeline_type"):
+            flags.append({
+                "event_id": evt_id,
+                "reason": "timeline_type is missing or None",
+            })
+
+    # Trigger 2: conflicting story_time_rank ordering
+    # A flashback (timeline_type != "present") should have a LOWER
+    # story_time_rank than surrounding present-timeline events.
+    # Flag any flashback whose rank is higher than a later present event.
+    present_ranks = [
+        e.get("story_time_rank")
+        for e in events
+        if e.get("timeline_type") == "present" and e.get("story_time_rank") is not None
+    ]
+    min_present_rank = min(present_ranks) if present_ranks else None
+
+    for evt in events:
+        if evt.get("timeline_type") in ("flashback", "memory", "dream"):
+            rank = evt.get("story_time_rank")
+            if rank is not None and min_present_rank is not None and rank > min_present_rank:
+                flags.append({
+                    "event_id": evt.get("id", "<unknown>"),
+                    "reason": (
+                        f"story_time_rank conflict: flashback rank {rank} "
+                        f"is higher than present-timeline rank {min_present_rank}"
+                    ),
+                })
+
+    return flags
+
+
+# ---------------------------------------------------------------------------
 # Public ingestion functions
 # ---------------------------------------------------------------------------
 
@@ -222,7 +276,18 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         })
     # Create events to represent character interactions this chapter
     if events:
-        # First pass: Create all events and store their generated IDs
+        # First pass: Create all scenes and store their generated IDs
+        scene_ids_seen = set()
+        for event_data in events:
+            scene_id = event_data.get("scene_id")
+            if scene_id and scene_id not in scene_ids_seen:
+                scene_ids_seen.add(scene_id)
+                global_scene_id = f"chapter_{chapter_counter}_scene_{scene_id}"
+                location = event_data.get("location", "Unknown")
+                action_summary = event_data.get("action_summary", "A scene")
+                graph.add_scene(global_scene_id, chapter_counter, location, action_summary)
+
+        # Second pass: Create all events and store their generated IDs
         event_ids: list[str] = []
         for idx, event_data in enumerate(events):
             action_summary = event_data.get("action_summary", "Unknown Event")
@@ -270,6 +335,12 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     relation_type=relation_type,
                     intensity=intensity,
                 )
+
+                # Add event to scene
+                scene_id = event_data.get("scene_id")
+                if scene_id:
+                    global_scene_id = f"chapter_{chapter_counter}_scene_{scene_id}"
+                    graph.add_event_to_scene(event_id, global_scene_id)
 
                 # P3: Upsert direct character-to-character co-occurrence edges for every
                 # pair of participants so relationship queries don't need to traverse events.
@@ -512,6 +583,15 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # Atomically save all changes to disk
     graph.save_graph()
     save_runtime(story_uuid, chapter_counter, runtime_db)
+    
+    # Trigger batched arc detection every 5 chapters
+    if chapter_counter > 0 and chapter_counter % 5 == 0:
+        logger.info(f"Triggering batched arc detection at chapter {chapter_counter}")
+        try:
+            detect_arcs(story_uuid, every_n=5)
+        except Exception as e:
+            logger.error(f"Arc detection failed: {e}")
+
     logger.info(f"Chapter {chapter_counter} ({title}) fully ingested and state persisted.")
     return chapter
 
