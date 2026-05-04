@@ -462,17 +462,14 @@ elif page == "Ingestion Engine":
                     st.error(f"Error processing chapter: {str(e)}")
 
 elif page == "Wiki Memory":
-    st.header("Character Wiki (Memory)")
-    st.markdown("Browse the generated characters and their canonical status.")
+    st.header("Story Wiki (Memory)")
+    st.markdown("Browse the generated characters, locations, events, and narrative arcs.")
     
     from app.services.wiki import get_wiki_dir
     import os
     wiki_dir = get_wiki_dir(active_story_uuid)
     
-    files = []
-    if os.path.exists(wiki_dir):
-        files = [f for f in os.listdir(wiki_dir) if f.endswith('.md')]
-    # Mode Selector
+    # Mode Selector (Applies globally to Wiki)
     col_mode, col_chap, col_pov = st.columns([2, 2, 2])
     with col_mode:
         wiki_mode = st.selectbox("Wiki View Mode", ["God Mode", "Reader Mode", "Character POV"], index=0)
@@ -486,61 +483,104 @@ elif page == "Wiki Memory":
     
     with col_pov:
         if mode == "pov":
+            files = []
+            if os.path.exists(wiki_dir):
+                files = [f for f in os.listdir(wiki_dir) if f.endswith('.md')]
             pov_options = [f.replace('.md', '') for f in files]
             pov_character_id = st.selectbox("POV Character", pov_options) if pov_options else None
         else:
             pov_character_id = None
 
-    if files:
-        selected_file = st.selectbox(
-            "Select Character",
-            files,
-            format_func=lambda f: f.replace('.md', '').replace('_', ' ').title()
-        )
-        if not selected_file:
-            st.warning("No character selected.")
+    wiki_tab1, wiki_tab2, wiki_tab3, wiki_tab4 = st.tabs(["Characters", "Locations", "Events", "Arcs"])
+
+    with wiki_tab1:
+        files = []
+        if os.path.exists(wiki_dir):
+            files = [f for f in os.listdir(wiki_dir) if f.endswith('.md')]
+            
+        if files:
+            selected_file = st.selectbox(
+                "Select Character",
+                files,
+                format_func=lambda f: f.replace('.md', '').replace('_', ' ').title()
+            )
+            if not selected_file:
+                st.warning("No character selected.")
+            else:
+                with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Buttons row: spacer + two action buttons right-aligned
+                _, col_rag, col_export = st.columns([5, 2, 2])
+
+                with col_rag:
+                    from app.services.wiki import enrich_wiki_from_rag
+                    if st.button("✨ Improve with RAG", use_container_width=True):
+                        with st.spinner("Enriching wiki using Graph RAG (respecting filters)..."):
+                            char_id = selected_file.replace('.md', '')
+                            try:
+                                enrich_wiki_from_rag(
+                                    active_story_uuid,
+                                    char_id,
+                                    mode=mode,
+                                    reader_chapter=reader_chapter,
+                                    pov_character_id=pov_character_id
+                                )
+                                st.success("Wiki enriched successfully!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to enrich wiki: {e}")
+
+                with col_export:
+                    st.download_button(
+                        label="📥 Export Wiki Entry",
+                        data=content,
+                        file_name=selected_file,
+                        mime="text/markdown",
+                        use_container_width=True
+                    )
+
+                st.markdown("---")
+                # Full-width wiki content — no column wrapper
+                st.markdown(content, unsafe_allow_html=True)
+        elif not os.path.exists(wiki_dir):
+            st.warning(f"Wiki directory not found. Process some chapters first to generate character wikis.")
         else:
-            with open(os.path.join(wiki_dir, selected_file), "r", encoding="utf-8") as f:
-                content = f.read()
+            st.info("No wiki entries found yet. Ingest some chapters to populate the wiki.")
 
-            # Buttons row: spacer + two action buttons right-aligned
-            _, col_rag, col_export = st.columns([5, 2, 2])
+    with wiki_tab2:
+        from app.services.location_wiki import get_location_wiki_dir
+        loc_dir = get_location_wiki_dir(active_story_uuid)
+        loc_files = [f for f in os.listdir(loc_dir) if f.endswith('.md')] if os.path.exists(loc_dir) else []
+        if loc_files:
+            selected_loc = st.selectbox("Select Location", loc_files, format_func=lambda f: f.replace('.md', '').replace('_', ' ').title())
+            with open(os.path.join(loc_dir, selected_loc), "r", encoding="utf-8") as f:
+                st.markdown(f.read(), unsafe_allow_html=True)
+        else:
+            st.info("No location entries found. Locations will be extracted as you ingest chapters.")
 
-            with col_rag:
-                from app.services.wiki import enrich_wiki_from_rag
-                if st.button("✨ Improve with RAG", use_container_width=True):
-                    with st.spinner("Enriching wiki using Graph RAG (respecting filters)..."):
-                        char_id = selected_file.replace('.md', '')
-                        try:
-                            enrich_wiki_from_rag(
-                                active_story_uuid,
-                                char_id,
-                                mode=mode,
-                                reader_chapter=reader_chapter,
-                                pov_character_id=pov_character_id
-                            )
-                            st.success("Wiki enriched successfully!")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to enrich wiki: {e}")
+    with wiki_tab3:
+        from app.services.event_wiki import get_event_wiki_dir
+        ev_dir = get_event_wiki_dir(active_story_uuid)
+        ev_files = [f for f in os.listdir(ev_dir) if f.endswith('.md')] if os.path.exists(ev_dir) else []
+        if ev_files:
+            selected_ev = st.selectbox("Select Event", ev_files, format_func=lambda f: f.replace('.md', '').replace('_', ' ').title())
+            with open(os.path.join(ev_dir, selected_ev), "r", encoding="utf-8") as f:
+                st.markdown(f.read(), unsafe_allow_html=True)
+        else:
+            st.info("No event entries found. Events will be extracted as you ingest chapters.")
 
-            with col_export:
-                st.download_button(
-                    label="📥 Export Wiki Entry",
-                    data=content,
-                    file_name=selected_file,
-                    mime="text/markdown",
-                    use_container_width=True
-                )
-
-            st.markdown("---")
-            # Full-width wiki content — no column wrapper
-            st.markdown(content, unsafe_allow_html=True)
-    elif not os.path.exists(wiki_dir):
-        st.warning(f"Wiki directory not found. Process some chapters first to generate character wikis.")
-    else:
-        st.info("No wiki entries found yet. Ingest some chapters to populate the wiki.")
+    with wiki_tab4:
+        from app.services.arc_wiki import get_arc_wiki_dir
+        arc_dir = get_arc_wiki_dir(active_story_uuid)
+        arc_files = [f for f in os.listdir(arc_dir) if f.endswith('.md')] if os.path.exists(arc_dir) else []
+        if arc_files:
+            selected_arc = st.selectbox("Select Arc", arc_files, format_func=lambda f: f.replace('.md', '').replace('_', ' ').title())
+            with open(os.path.join(arc_dir, selected_arc), "r", encoding="utf-8") as f:
+                st.markdown(f.read(), unsafe_allow_html=True)
+        else:
+            st.info("No narrative arc entries found. Arcs are detected in batches every 5 chapters.")
     
 elif page == "Audio Hub":
     st.header("Audio Hub")

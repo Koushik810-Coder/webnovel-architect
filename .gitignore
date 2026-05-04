@@ -29,7 +29,7 @@ Documents/commits*.txt
 Documents/slides.txt
 
 # Large Models & Binaries
-models/
+/models/
 lib/
 *.onnx
 *.bin

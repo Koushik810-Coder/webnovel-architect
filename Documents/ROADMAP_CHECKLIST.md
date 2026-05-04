@@ -19,7 +19,7 @@ Use this document to track the progress of features outlined in `Future_Ideas.md
 - [x] **2.2 Adaptive Model Routing**
 - [x] **2.3 Spoiler-Free & POV Wiki Filter**
 - [x] **2.4 Batched Arc Detection**
-- [ ] **2.5 Location & Event Wiki Pages**
+- [x] **2.5 Location, Event & Arc Wiki Pages**
 - [ ] **2.6a Wiki Page Versioning**
 - [ ] **2.7 Interactive Story-World Chatbot UI**
 - [ ] **2.8 "Wiki as a Query Language"**
