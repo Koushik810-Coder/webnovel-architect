@@ -154,6 +154,13 @@ def _run_with_retry(
             logger.error(
                 f"LLM Error [{target_model}] Attempt {attempt}/{max_attempts}: {type(e).__name__}: {e}"
             )
+            # 404 / NotFoundError = model endpoint permanently unavailable — bail immediately,
+            # no point retrying since the model won't magically reappear.
+            if "NotFoundError" in type(e).__name__ or "404" in str(e):
+                logger.warning(
+                    f"Model [{target_model}] returned 404 NotFound — skipping remaining retries."
+                )
+                break
             if attempt < max_attempts:
                 if any(x in type(e).__name__ for x in ["RateLimitError", "ServiceUnavailableError"]) or any(x in str(e) for x in ["429", "503", "queue full"]):
                     if attempt % num_keys == 0:

@@ -1,6 +1,6 @@
 # Switch engines here without touching code
 # Primary LLM: NVIDIA NIM (fast, on-demand, OpenAI-compatible)
-llm_model: "nvidia_nim/meta/llama-3.1-70b-instruct"
+llm_model: "nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct"
 # Tier-2 fallback: Gemini (if NIM is unavailable)
 fallback_llm: "gemini/gemini-2.5-flash"
 # Tier-3 fallback: Groq (last resort)
