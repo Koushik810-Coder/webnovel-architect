@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "webnovel_architect",
+  "project_id": "bd684883-0485-4a72-b2f8-5b9fee468357"
+}
