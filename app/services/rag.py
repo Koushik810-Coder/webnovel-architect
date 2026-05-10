@@ -295,18 +295,44 @@ Respond ONLY with a valid JSON object matching this exact schema:
     "species": "Their race or species — or null.",
     "role": "Protagonist, Antagonist, Supporting, Mentor, etc. — or null.",
     "affiliations": ["Faction A", "Group B"],
-    "appearance": "A cohesive physical description inferred from context.",
+    "appearance": "A single cohesive prose paragraph covering ALL confirmed physical traits: hair, eyes, height, build, skin tone, attire, and any distinguishing marks.",
+    "appearance_traits": {{
+        "hair_color": "exact colour mentioned in the text — null if never described",
+        "hair_style": "e.g. long and wavy, cropped short — null if unknown",
+        "eye_color": "exact colour — null if unknown",
+        "skin_tone": "e.g. pale, olive, dark — null if unknown",
+        "height": "e.g. tall, average, short — null if unknown",
+        "build": "e.g. lean, muscular, slender — null if unknown",
+        "distinguishing_marks": "scars, tattoos, birthmarks, etc. — null if none mentioned",
+        "typical_attire": "clothing style or colours usually worn — null if unknown"
+    }},
+    "appearance_change_note": "One-sentence reason if any appearance trait changed across the timeline, or null.",
     "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
     "notable_quirks": ["Quirk 1", "Quirk 2"],
+    "abilities": ["Powers, combat techniques, innate skills, or magic systems they demonstrably use"],
+    "goals": ["Concrete objectives, ambitions, or driving motivations — including hidden ones if revealed"],
+    "weaknesses": ["Physical limitations, emotional vulnerabilities, power suppression, fears, or curses"],
+    "key_facts": [
+        "All other wiki-worthy facts: origin, faction rank, titles earned, past crimes, prophecies about them, rank-ups, secrets discovered, transformations, oaths, losses, key achievements"
+    ],
     "relationships": [{{"target_id": "character_id", "relation": "Rival", "context": "Brief context for the relationship"}}],
     "new_timeline_events": [{{"chapter": 5, "event": "Description of what happened to this character"}}]
 }}
+
+EXTRACTION RULES:
+- FACTUAL ONLY: Populate only from the timeline events and existing wiki. Never invent.
+- NULL vs EMPTY: Unknown scalars → null. Empty lists → []. Never use placeholder strings.
+- APPEARANCE: Only confirmed traits. Reflect the LATEST value if a trait changed; explain in appearance_change_note.
+- ABILITIES: Be specific (e.g. "Spatial Compression Technique", not just "a technique").
+- GOALS: State concrete objectives. Distinguish overt goals from hidden ones where relevant.
+- WEAKNESSES: Physical limits, emotional vulnerabilities, suppressed powers, curses, known fears.
+- KEY FACTS: Anything wiki-worthy that doesn't fit other fields. Be comprehensive — this is the catch-all.
 """
 
 
     try:
         profile = analyze_text_json(prompt, model=model)
-        if not profile:
+        if profile is None or (isinstance(profile, dict) and profile.get("error")):
             raise ValueError(f"LLM returned empty or malformed JSON for {character_name}.")
             
         if profile and mode == "reader":

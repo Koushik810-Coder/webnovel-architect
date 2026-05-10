@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Union
 
 class CharacterWiki(BaseModel):
     """
@@ -29,8 +29,28 @@ class CharacterWiki(BaseModel):
     personality_traits: List[str] = []
     notable_quirks: List[str] = []
 
+    # Powers, skills, techniques the character has demonstrated
+    abilities: List[str] = []
+
+    # What the character wants, is working toward, or is driven by
+    goals: List[str] = []
+
+    # Known weaknesses, limitations, fears, or vulnerabilities
+    weaknesses: List[str] = []
+
+    # Catch-all for important story facts: backstory reveals, achievements, secrets, rank-ups, etc.
+    key_facts: List[str] = []
+
     appearance: Optional[str] = None
-    
+
+    # Structured appearance traits — individual attributes for change-tracking
+    # e.g. {"hair_color": "black", "eye_color": "amber", "height": "tall", "build": "lean"}
+    appearance_traits: Dict[str, str] = {}
+
+    # Appearance change log — records when a trait visibly changed in the story
+    # Each entry: {"chapter": int, "trait": str, "old_value": str, "new_value": str, "note": str}
+    appearance_history: List[Dict[str, Any]] = []
+
     metadata: dict[str, Any] = {}
     relationships: List[Dict[str, Optional[str]]] = []
     timeline: List[Dict[str, Any]] = []
@@ -64,15 +84,24 @@ class CharacterWiki(BaseModel):
             clean.append(sanitized)
         return clean
 
-    @field_validator('timeline', mode='before')
+    @field_validator('timeline', 'appearance_history', mode='before')
     @classmethod
     def sanitize_timeline(cls, v: Any) -> List[Dict]:
-        """Filter non-dict items from timeline."""
+        """Filter non-dict items from timeline and appearance_history."""
         if not isinstance(v, list):
             return []
         return [item for item in v if isinstance(item, dict)]
 
-    @field_validator('affiliations', 'personality_traits', 'notable_quirks', 'aliases', mode='before')
+    @field_validator('appearance_traits', mode='before')
+    @classmethod
+    def sanitize_appearance_traits(cls, v: Any) -> Dict[str, str]:
+        """Ensure appearance_traits is always a str->str dict."""
+        if not isinstance(v, dict):
+            return {}
+        return {str(k): str(val) for k, val in v.items() if k is not None and val is not None}
+
+    @field_validator('affiliations', 'personality_traits', 'notable_quirks', 'aliases',
+                     'abilities', 'goals', 'weaknesses', 'key_facts', mode='before')
     @classmethod
     def sanitize_string_lists(cls, v: Any) -> List[str]:
         """Filter None and non-string items from string list fields."""

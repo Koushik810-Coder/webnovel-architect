@@ -58,6 +58,10 @@ def apply_profile_updates(base: CharacterWiki, updates: dict) -> CharacterWiki:
         "affiliations": "affiliations",
         "personality_traits": "personality_traits",
         "notable_quirks": "notable_quirks",
+        "abilities": "abilities",
+        "goals": "goals",
+        "weaknesses": "weaknesses",
+        "key_facts": "key_facts",
     }
 
     patch = {}
@@ -65,7 +69,7 @@ def apply_profile_updates(base: CharacterWiki, updates: dict) -> CharacterWiki:
         value = updates.get(llm_key)
         if _truthy(value):
             patch[wiki_key] = value
-            
+
     # Validate metadata
     metadata = updates.get("metadata")
     if _truthy(metadata) and isinstance(metadata, dict):
@@ -86,6 +90,52 @@ def apply_profile_updates(base: CharacterWiki, updates: dict) -> CharacterWiki:
             current_timeline = list(base.timeline)
             current_timeline.extend(valid_events)
             patch["timeline"] = current_timeline
+
+    # ── Structured appearance_traits with automatic change-tracking ──────────
+    # The LLM returns a flat dict like {"hair_color": "silver", "eye_color": "amber"}.
+    # We merge it on top of the existing traits and auto-log any differing values.
+    new_traits = updates.get("appearance_traits")
+    if _truthy(new_traits) and isinstance(new_traits, dict):
+        # Filter out placeholder values
+        new_traits = {
+            k: v for k, v in new_traits.items()
+            if isinstance(k, str) and isinstance(v, str)
+            and v.strip().lower() not in _PLACEHOLDER_STRINGS
+        }
+        if new_traits:
+            old_traits = dict(base.appearance_traits or {})
+            merged_traits = dict(old_traits)  # start from existing
+            history_additions = list(base.appearance_history or [])
+
+            # Find the chapter this update applies to (from timeline or metadata)
+            _update_chapter = None
+            if new_timeline_events and isinstance(new_timeline_events, list) and new_timeline_events:
+                _update_chapter = new_timeline_events[-1].get("chapter")
+            if _update_chapter is None:
+                # Fall back: look for the maximum chapter already in the timeline
+                all_chapters = [e.get("chapter") for e in (base.timeline or []) if isinstance(e.get("chapter"), int)]
+                _update_chapter = max(all_chapters) if all_chapters else base.last_updated_chapter
+
+            for trait_key, new_val in new_traits.items():
+                old_val = old_traits.get(trait_key)
+                merged_traits[trait_key] = new_val  # always update to latest
+                # Record a change-log entry only when the value genuinely changed
+                if old_val and old_val.strip().lower() != new_val.strip().lower():
+                    history_additions.append({
+                        "chapter": _update_chapter,
+                        "trait": trait_key,
+                        "old_value": old_val,
+                        "new_value": new_val,
+                        "note": updates.get("appearance_change_note", ""),
+                    })
+                    logger.info(
+                        f"Appearance change logged for '{base.character_id}': "
+                        f"{trait_key} '{old_val}' -> '{new_val}' (ch. {_update_chapter})"
+                    )
+
+            patch["appearance_traits"] = merged_traits
+            if history_additions != list(base.appearance_history or []):
+                patch["appearance_history"] = history_additions
 
     return base.model_copy(update=patch)
 
@@ -190,6 +240,68 @@ def render_tr(label: str, value: Optional[str], label_color: str) -> str:
     val_str = value if value else "<i>Unknown</i>"
     return f'<tr style="border: none; background: transparent;"><td style="padding: 4px 0; border: none;"><b style="color: {label_color};">{label}:</b></td> <td style="padding: 4px 0; border: none;">{val_str}</td></tr>'
 
+_TRAIT_LABELS: dict = {
+    "hair_color": "Hair Color",
+    "hair_style": "Hair Style",
+    "eye_color": "Eye Color",
+    "skin_tone": "Skin Tone",
+    "height": "Height",
+    "build": "Build",
+    "distinguishing_marks": "Distinguishing Marks",
+    "typical_attire": "Typical Attire",
+}
+
+def _render_appearance_section(character: "CharacterWiki") -> str:
+    """Renders the Appearance wiki section with a structured trait table and change log."""
+    parts: list[str] = []
+
+    # ── Prose description ────────────────────────────────────────────────────
+    prose = (character.appearance or "").strip()
+    if prose:
+        parts.append(prose)
+    else:
+        parts.append("*Appearance details not yet recorded.*")
+
+    # ── Structured trait table ───────────────────────────────────────────────
+    traits = character.appearance_traits or {}
+    if traits:
+        rows = []
+        for key, label in _TRAIT_LABELS.items():
+            val = traits.get(key)
+            if val:
+                rows.append(f"| **{label}** | {val} |")
+        # Render any extra traits not in the canonical label map
+        for key, val in traits.items():
+            if key not in _TRAIT_LABELS and val:
+                rows.append(f"| **{key.replace('_', ' ').title()}** | {val} |")
+        if rows:
+            parts.append(
+                "\n\n**Current Appearance at a Glance**\n\n"
+                "| Trait | Description |\n"
+                "|-------|-------------|\n"
+                + "\n".join(rows)
+            )
+
+    # ── Appearance change log ────────────────────────────────────────────────
+    history = character.appearance_history or []
+    if history:
+        log_lines = [
+            "\n\n**Appearance Change Log**\n",
+            "| Chapter | Trait | Before | After | Note |",
+            "|---------|-------|--------|-------|------|",
+        ]
+        for entry in history:
+            ch = entry.get("chapter", "?")
+            trait = _TRAIT_LABELS.get(entry.get("trait", ""), str(entry.get("trait", "")).replace("_", " ").title())
+            old_v = entry.get("old_value", "—")
+            new_v = entry.get("new_value", "—")
+            note = entry.get("note", "") or "—"
+            log_lines.append(f"| Ch. {ch} | {trait} | {old_v} | {new_v} | {note} |")
+        parts.append("\n".join(log_lines))
+
+    return "\n".join(parts)
+
+
 def save_character_wiki(story_uuid: str, character: CharacterWiki):
     """
     Saves a character's canon data to:
@@ -208,6 +320,10 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
 
     traits_str = render_markdown_list(character.personality_traits or [], "Personality details not recorded.")
     quirks_str = render_markdown_list(character.notable_quirks or [], "No notable quirks documented.")
+    abilities_str = render_markdown_list(character.abilities or [], "No abilities recorded yet.")
+    goals_str = render_markdown_list(character.goals or [], "Goals not yet established.")
+    weaknesses_str = render_markdown_list(character.weaknesses or [], "No weaknesses documented.")
+    key_facts_str = render_markdown_list(character.key_facts or [], "No key facts recorded yet.")
 
     # Timeline formatting
     timeline_str = "No events recorded."
@@ -277,13 +393,25 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
 {character.long_description or "Detailed history not yet available."}
 
 ## 👁️ Appearance
-{character.appearance or "Appearance details not recorded."}
+{_render_appearance_section(character)}
 
 ## 🧠 Personality & Traits
 {traits_str}
 
 ## 🎭 Quirks & Habits
 {quirks_str}
+
+## ⚔️ Abilities & Powers
+{abilities_str}
+
+## 🎯 Goals & Motivations
+{goals_str}
+
+## ⚡ Weaknesses & Limitations
+{weaknesses_str}
+
+## 📌 Key Facts
+{key_facts_str}
 
 ## 🕸️ Relationships
 {relationships_str}
@@ -476,13 +604,39 @@ If a field is genuinely unknown, use null or an empty list — do NOT use placeh
     "species": "Their race or species — or null.",
     "role": "Protagonist, Antagonist, Supporting, Mentor, etc. — or null.",
     "affiliations": ["Faction A", "Family B"],
-    "appearance": "A cohesive description of how they look.",
+    "appearance": "A single cohesive prose paragraph describing their overall look. Include ALL physical traits confirmed in the text.",
+    "appearance_traits": {{
+        "hair_color": "exact colour — null if unknown",
+        "hair_style": "e.g. long and wavy — null if unknown",
+        "eye_color": "exact colour — null if unknown",
+        "skin_tone": "e.g. pale, olive, dark — null if unknown",
+        "height": "e.g. tall, average, short — null if unknown",
+        "build": "e.g. lean, muscular, slender — null if unknown",
+        "distinguishing_marks": "scars, tattoos, etc. — null if unknown",
+        "typical_attire": "clothing style or colours usually worn — null if unknown"
+    }},
+    "appearance_change_note": "One-sentence reason for any appearance change, or null if no change.",
     "personality_traits": ["Trait 1", "Trait 2"],
     "notable_quirks": ["Quirk 1", "Quirk 2"],
+    "abilities": ["Powers, combat techniques, or skills this character demonstrably possesses"],
+    "goals": ["What they want, are fighting for, or are driven by"],
+    "weaknesses": ["Known limitations, fears, or vulnerabilities"],
+    "key_facts": [
+        "Important story facts that don't fit elsewhere: backstory reveals, rank-ups, secrets discovered, key achievements, losses, transformations, oaths taken, etc."
+    ],
     "metadata": {{"Power Level": "A-Rank", "Magic Element": "Fire"}},
     "relationships": [{{"target_id": "bob", "relation": "Rival", "context": "Fought in the arena"}}],
     "new_timeline_events": [{{"chapter": 15, "event": "Discovered the hidden sword in the cave"}}]
 }}
+
+EXTRACTION RULES:
+- FACTUAL ONLY: Do not invent. Every field must be grounded in the provided text.
+- NULL vs EMPTY: Use null for genuinely unknown scalars; use [] for empty lists — never placeholder strings.
+- APPEARANCE: Only populate appearance_traits keys you can confirm. Reflect the NEW value if a trait changed and explain in appearance_change_note.
+- ABILITIES: Include magic, combat techniques, special skills, and innate powers. Be specific (e.g. "Fire Qi Manipulation", not just "magic").
+- GOALS: State concrete objectives, not vague drives. Include hidden goals if revealed in the text.
+- WEAKNESSES: Physical limitations, emotional vulnerabilities, power suppression, curses, etc.
+- KEY FACTS: Capture anything significant that would appear in a wiki but doesn't fit other fields: origin, faction rank, past crimes, prophecies about them, titles earned, etc.
 """
     try:
         updated_profile = analyze_text_json(prompt, model=get_llm_model())
@@ -542,13 +696,37 @@ Each character's profile dict MUST match this exact schema:
     "species": "Their race or species — or null.",
     "role": "Protagonist, Antagonist, Supporting, Mentor, etc. — or null.",
     "affiliations": ["Faction A", "Group B"],
-    "appearance": "A cohesive physical description inferred from context.",
+    "appearance": "A single cohesive prose paragraph of their physical appearance. Include ALL confirmed traits: hair, eyes, height, build, skin, attire, marks.",
+    "appearance_traits": {{
+        "hair_color": "exact colour or null",
+        "hair_style": "style description or null",
+        "eye_color": "exact colour or null",
+        "skin_tone": "tone or null",
+        "height": "tall/average/short or null",
+        "build": "physique or null",
+        "distinguishing_marks": "scars, tattoos, etc. or null",
+        "typical_attire": "clothing style or null"
+    }},
+    "appearance_change_note": "One-sentence reason for any appearance change this chapter, or null.",
     "personality_traits": ["Trait 1", "Trait 2", "Trait 3"],
     "notable_quirks": ["Quirk 1", "Quirk 2"],
+    "abilities": ["Confirmed powers, combat techniques, or skills"],
+    "goals": ["Concrete objectives or motivations"],
+    "weaknesses": ["Known limitations, fears, or vulnerabilities"],
+    "key_facts": ["Backstory reveals, rank-ups, secrets, achievements, titles, oaths, transformations, etc."],
     "metadata": {{}},
     "relationships": [{{"target_id": "character_id", "relation": "Rival", "context": "Brief context"}}],
     "new_timeline_events": [{{"chapter": 5, "event": "Description of what happened"}}]
 }}
+
+EXTRACTION RULES (apply to EVERY character):
+- FACTUAL ONLY: Do not invent anything. Every populated field must be grounded in the provided text.
+- NULL vs EMPTY: Use null for unknown scalars; [] for empty lists — never placeholder strings.
+- APPEARANCE: Populate only confirmed traits. Reflect the NEW value if a trait changed; explain in appearance_change_note.
+- ABILITIES: Be specific (e.g. "Ice Domain" not just "magic"). Include combat forms, techniques, innate powers.
+- GOALS: State concrete objectives. Include revealed hidden goals.
+- WEAKNESSES: Physical limits, emotional vulnerabilities, suppressed powers, curses, known fears.
+- KEY FACTS: Anything wiki-worthy that doesn't fit other fields: origin, titles, past crimes, faction rank, prophecies, etc.
 
 Characters to update:
 {json.dumps(characters, indent=2, ensure_ascii=False)}
@@ -646,8 +824,11 @@ def _enrich_from_text_mentions(
     prompt = f"""
     Based ONLY on the following mentions of '{character_name}' found in a web novel,
     write a brief character profile. Return a JSON object with these keys:
-    short_description, role, personality_traits (list), and any other
-    details you can reliably infer. Do NOT hallucinate — if a field is unknown, use null.
+    short_description, role, personality_traits (list), appearance (prose string),
+    appearance_traits (dict with keys: hair_color, hair_style, eye_color, skin_tone,
+    height, build, distinguishing_marks, typical_attire — use null for unknowns),
+    and any other details you can reliably infer.
+    Do NOT hallucinate — if a field is unknown, use null.
 
     Mentions:
     {mention_context}
