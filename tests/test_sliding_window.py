@@ -23,11 +23,14 @@ def test_sliding_window_context_passed_to_extraction(mock_get_graph_engine, mock
     chapter_1_text = "Intro.\n\nMid.\n\nFinal paragraph 1.\n\nFinal paragraph 2."
     chapter_2_text = "Next chapter starts here."
     
+    import uuid
+    story_uuid = f"test_story_{uuid.uuid4().hex}"
+    
     # Ingest chapter 1
-    ingest_chapter("test_story", "Title 1", chapter_1_text, extractor="llm")
+    ingest_chapter(story_uuid, "Title 1", chapter_1_text, extractor="llm")
     
     # Ingest chapter 2
-    ingest_chapter("test_story", "Title 2", chapter_2_text, extractor="llm")
+    ingest_chapter(story_uuid, "Title 2", chapter_2_text, extractor="llm")
     
     assert mock_extract.call_count == 2
     

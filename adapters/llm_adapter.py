@@ -199,6 +199,55 @@ def _try_model(
     return _run_with_retry(model, messages, max_attempts=max_attempts, extra_kwargs=kw, content_transform=content_transform)
 
 
+def _run_fallback_chain(
+    model: str,
+    messages: list,
+    extra_kwargs: Optional[dict] = None,
+    content_transform: Optional[Callable[[str], Any]] = None,
+) -> tuple[bool, Any]:
+    """
+    Single source of truth for the 3-tier LLM fallback chain: NIM → Gemini → Groq.
+
+    Both analyze_text() and analyze_text_json() delegate here so any change
+    (new tier, backoff tweak, extra logging) is made exactly once.
+
+    Returns (True, result) on first success, or (False, last_exception) if all tiers fail.
+    """
+    from app.core.config import get_fallback_llm, get_fallback_llm_last_resort
+    fallback_model = get_fallback_llm()
+    last_resort_model = get_fallback_llm_last_resort()
+
+    # Tier 1: Primary model (NVIDIA NIM)
+    success, result = _try_model(
+        model, messages, max_attempts=5,
+        extra_kwargs=extra_kwargs, content_transform=content_transform,
+    )
+    if success:
+        return True, result
+
+    # Tier 2: Gemini
+    if model != fallback_model:
+        logger.warning(f"Primary model {model} failed. Trying tier-2 fallback: {fallback_model}")
+        success, result = _try_model(
+            fallback_model, messages, max_attempts=3,
+            extra_kwargs=extra_kwargs, content_transform=content_transform,
+        )
+        if success:
+            return True, result
+
+    # Tier 3: Groq (last resort)
+    if model != last_resort_model and fallback_model != last_resort_model:
+        logger.warning(f"Tier-2 fallback {fallback_model} failed. Trying last-resort: {last_resort_model}")
+        success, result = _try_model(
+            last_resort_model, messages, max_attempts=2,
+            extra_kwargs=extra_kwargs, content_transform=content_transform,
+        )
+        if success:
+            return True, result
+
+    return False, result
+
+
 def analyze_text(text: str, model: str = None, temperature: float = 0.1, chat_history: Optional[list] = None) -> str:
     """
     Analyzes text using the specified LLM model via LiteLLM.
@@ -208,36 +257,17 @@ def analyze_text(text: str, model: str = None, temperature: float = 0.1, chat_hi
     """
     if not model:
         model = get_llm_model()
-        
+
     messages = []
     if chat_history:
         messages.extend(chat_history)
-        
     messages.append({"role": "user", "content": text})
-    extra_kwargs = {"temperature": temperature}
 
-    # Tier 1: Primary model (NVIDIA NIM)
-    success, result = _try_model(model, messages, max_attempts=5, extra_kwargs=extra_kwargs)
+    success, result = _run_fallback_chain(
+        model, messages, extra_kwargs={"temperature": temperature}
+    )
     if success:
         return result
-
-    from app.core.config import get_fallback_llm, get_fallback_llm_last_resort
-    fallback_model = get_fallback_llm()
-    last_resort_model = get_fallback_llm_last_resort()
-
-    # Tier 2: Gemini
-    if model != fallback_model:
-        logger.warning(f"Primary model {model} failed. Trying tier-2 fallback: {fallback_model}")
-        success, result = _try_model(fallback_model, messages, max_attempts=3, extra_kwargs=extra_kwargs)
-        if success:
-            return result
-
-    # Tier 3: Groq (last resort)
-    if model != last_resort_model and fallback_model != last_resort_model:
-        logger.warning(f"Tier-2 fallback {fallback_model} failed. Trying last-resort: {last_resort_model}")
-        success, result = _try_model(last_resort_model, messages, max_attempts=2, extra_kwargs=extra_kwargs)
-        if success:
-            return result
 
     error_msg = f"All LLM tiers exhausted. Last error: {str(result)}"
     logger.critical(error_msg)
@@ -271,41 +301,15 @@ def analyze_text_json(text: str, model: str = None, temperature: float = 0.0) ->
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": text},
     ]
-    extra_kwargs = {"response_format": {"type": "json_object"}, "temperature": temperature}
 
-    from app.core.config import get_fallback_llm, get_fallback_llm_last_resort
-    fallback_model = get_fallback_llm()
-    last_resort_model = get_fallback_llm_last_resort()
-
-    # Tier 1: Primary model (NVIDIA NIM)
-    success, result = _try_model(model, messages, max_attempts=5, extra_kwargs=extra_kwargs, content_transform=_parse_json)
+    success, result = _run_fallback_chain(
+        model, messages,
+        extra_kwargs={"response_format": {"type": "json_object"}, "temperature": temperature},
+        content_transform=_parse_json,
+    )
     if success:
         _cache_put(cache_key, result)
         return result
 
-    # Tier 2: Gemini
-    if model != fallback_model:
-        logger.warning(f"Primary model {model} failed. Trying tier-2 fallback: {fallback_model}")
-        success, result = _try_model(fallback_model, messages, max_attempts=3, extra_kwargs=extra_kwargs, content_transform=_parse_json)
-        if success:
-            _cache_put(cache_key, result)
-            return result
-
-    # Tier 3: Groq (last resort)
-    if model != last_resort_model and fallback_model != last_resort_model:
-        logger.warning(f"Tier-2 fallback {fallback_model} failed. Trying last-resort: {last_resort_model}")
-        success, result = _try_model(last_resort_model, messages, max_attempts=2, extra_kwargs=extra_kwargs, content_transform=_parse_json)
-        if success:
-            _cache_put(cache_key, result)
-            return result
-
     logger.critical(f"All LLM tiers exhausted for JSON extraction. Last error: {str(result)}")
     return {"error": f"All LLM tiers exhausted. Last error: {str(result)}"}
-
-
-def get_model_info(model: str):
-    """
-    Optional: Get information about the model if needed for debug/logging.
-    """
-    import litellm  # lazy import for performance
-    return litellm.get_model_info(model)

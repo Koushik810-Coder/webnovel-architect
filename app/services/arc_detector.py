@@ -1,3 +1,4 @@
+import re
 from adapters.graph_adapter import get_graph_engine
 from adapters.llm_adapter import analyze_text_json
 from app.core.logger import get_logger
@@ -53,9 +54,14 @@ def detect_arcs(story_uuid: str, every_n: int = 5):
     arcs = _call_llm_for_arcs(events)
     
     for i, arc in enumerate(arcs):
-        arc_id = f"arc_{story_uuid}_{len(events)}_{i}"
-        label = arc.get("label", "Unknown Arc")
+        label = arc.get("label", f"arc_{i}")
         event_ids = arc.get("event_ids", [])
+
+        # Stable ID derived from the arc label so re-running arc detection at
+        # chapter 10 updates the same node that was created at chapter 5 —
+        # rather than creating a brand-new duplicate node every 5 chapters.
+        label_slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or f"arc_{i}"
+        arc_id = f"arc_{label_slug}"
         
         # Calculate chapter start/end from events
         arc_events = [e for e in events if e["id"] in event_ids]

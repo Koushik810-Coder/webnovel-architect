@@ -167,21 +167,13 @@ def extract_chapter_intelligence(text: str) -> Dict[str, Any]:
         "raw_entities": {name: 1 for name in potential_characters}
     }
 
-def route_model(text: str) -> str:
-    """
-    Dynamically routes text extraction to the appropriate LLM based on chapter complexity.
-    Currently hardcoded to always return the primary model (NVIDIA NIM) to avoid Groq rate limits.
-    """
-    primary_model = get_llm_model()
-    return primary_model
-
 def extract_chapter_intelligence_llm(text: str, model: str = None, previous_context: str = None) -> Dict[str, Any]:
     """
     Analyzes chapter text using an LLM.
     Returns metrics to update the Story Intelligence Engine.
     """
     if model is None:
-        model = route_model(text)
+        model = get_llm_model()  # direct call — route_model() removed (was always hardcoded)
     from adapters.llm_adapter import analyze_text_json
     
     context_block = ""
@@ -277,8 +269,13 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
     logger.debug(f"Starting LLM-based intelligence extraction using {model}")
     result = analyze_text_json(prompt, model=model)
     
-    if not result:
-        raise ValueError("Failed to extract intelligence. The LLM response was empty or invalid JSON.")
+    if not result or result.get("error"):
+        error_detail = (
+            result.get("error", "empty or invalid JSON response")
+            if isinstance(result, dict)
+            else "empty or invalid JSON response"
+        )
+        raise ValueError(f"LLM extraction failed: {error_detail}")
         
     active_characters = result.get("active_character_names", [])
     if not isinstance(active_characters, list):

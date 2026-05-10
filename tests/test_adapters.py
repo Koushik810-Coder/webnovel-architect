@@ -1,6 +1,6 @@
 from unittest.mock import patch, MagicMock
 
-from adapters.llm_adapter import analyze_text, get_model_info
+from adapters.llm_adapter import analyze_text
 # Assuming tts_adapter has functions. If not, testing what is there or omit it.
 try:
     from adapters.tts_adapter import generate_audio
@@ -30,13 +30,3 @@ def test_analyze_text_failure():
     with patch.dict('sys.modules', {'litellm': mock_litellm}):
         result = analyze_text("This is test text.", "test-model")
         assert result and "All LLM tiers exhausted" in result
-
-def test_get_model_info():
-    mock_litellm = MagicMock()
-    mock_litellm.get_model_info.return_value = {"info": "some info"}
-    
-    with patch.dict('sys.modules', {'litellm': mock_litellm}):
-        result = get_model_info("test-model")
-        assert result == {"info": "some info"}
-        mock_litellm.get_model_info.assert_called_once_with("test-model")
-

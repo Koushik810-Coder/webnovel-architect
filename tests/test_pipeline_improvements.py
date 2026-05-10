@@ -248,12 +248,13 @@ class TestGraphNodeAliases:
 class TestLLMFallbackConfig:
     def test_analyze_text_uses_config_fallback(self, monkeypatch):
         """analyze_text() fallback model must come from config, not hardcode."""
-        # D3 uses a lazy `from app.core.config import get_config` inside the function.
-        # Patch the source module so the lazy import picks up our mock.
+        # Patch get_fallback_llm directly — this is what _run_fallback_chain calls.
+        # (_config_cache is defined in config.py but get_config() reads from file,
+        # so patching the cache has no effect — patch the function instead.)
         import app.core.config as cfg_module
-        monkeypatch.setattr(cfg_module, "_config_cache", {
-            "fallback_llm": "groq/custom-fallback-model"
-        })
+        monkeypatch.setattr(cfg_module, "get_fallback_llm", lambda: "groq/custom-fallback-model")
+        # Also patch last_resort so it doesn't interfere
+        monkeypatch.setattr(cfg_module, "get_fallback_llm_last_resort", lambda: "groq/custom-last-resort")
 
         from adapters import llm_adapter
 
