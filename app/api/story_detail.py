@@ -34,8 +34,12 @@ def list_chapters(story_uuid: str):
                         word_count = len(f.read().split())
                 meta["word_count"] = word_count
                 result.append(meta)
-            except Exception:
-                continue
+            except Exception as e:
+                logger.error(f"Failed to read metadata for chapter {folder}: {e}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Corrupted chapter data in {folder}: {e}"
+                )
     return result
 
 

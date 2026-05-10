@@ -7,12 +7,10 @@ import re
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime, normalize_id
 from app.services.wiki import get_character_wiki_content, parse_character_wiki
+from app.core.utils import TaskStateManager
 
 from app.core.logger import get_logger
 logger = get_logger(__name__)
-
-# Sentinel file for audio generation cancellation (written by UI to stop synthesis).
-_CANCEL_AUDIO_FLAG = "cancel_audio.flag"
 
 
 async def _synthesize_edge_tts(t: str, v: str, p: str, p_vtt: str) -> None:
@@ -252,7 +250,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     chunk_vtts = []
 
     for i, segment in enumerate(script):
-        if os.path.exists(_CANCEL_AUDIO_FLAG):
+        if TaskStateManager.is_cancelled("audio"):
             logger.info("Cancellation requested.")
             return None
             

@@ -41,6 +41,7 @@ from adapters.graph_adapter import GraphProvider, _graph_instances
 from adapters.tts_adapter import get_tts_engine
 from app.services.voice_assignment import assign_voice
 from app.core.graduation import MAIN_CAST_THRESHOLD
+from app.core.utils import TaskStateManager
 
 from app.core.logger import get_logger
 
@@ -437,16 +438,14 @@ elif page == "Ingestion Engine":
                 # Setup Cancel Button above the process button
                 if st.session_state.get("generating_batch", False):
                     if st.button("🚫 Stop Ingestion", type="secondary"):
-                        with open("cancel_ingestion.flag", "w") as f:
-                            f.write("cancel")
+                        TaskStateManager.cancel_task("ingestion")
                         st.session_state["generating_batch"] = False
                         st.rerun()
 
                 start_batch = st.empty()
                 if not st.session_state.get("generating_batch", False):
                     if start_batch.button(f"🚀 Process Next {batch_size} Chapters", type="primary", use_container_width=True):
-                        if os.path.exists("cancel_ingestion.flag"):
-                            os.remove("cancel_ingestion.flag")
+                        TaskStateManager.clear_cancel("ingestion")
                         st.session_state["generating_batch"] = True
                         st.rerun()
                 
@@ -481,9 +480,8 @@ elif page == "Ingestion Engine":
                             progress_callback=update_progress
                         )
                         
-                        if os.path.exists("cancel_ingestion.flag"):
-                            with open("cancel_ingestion.flag", "r") as f:
-                                stop_reason = f.read().strip()
+                        if TaskStateManager.is_cancelled("ingestion"):
+                            stop_reason = TaskStateManager.get_cancel_reason("ingestion")
                             if stop_reason.startswith("error:"):
                                 st.error(f"Batch ingestion stopped due to an error: {stop_reason[6:].strip()}.\nSuccessfully processed {len(ingested)} chapters before stopping.")
                             else:
@@ -495,8 +493,7 @@ elif page == "Ingestion Engine":
                         st.error(f"Batch ingestion failed: {e}")
                     finally:
                         st.session_state["generating_batch"] = False
-                        if os.path.exists("cancel_ingestion.flag"):
-                            os.remove("cancel_ingestion.flag")
+                        TaskStateManager.clear_cancel("ingestion")
                         # Do not rerun automatically to prevent clearing errors/success messages immediately
                         # Let the user click 'Process Next' again.
                     
@@ -735,8 +732,7 @@ elif page == "Audio Hub":
         # Define cancel flag button logic
         if st.session_state.get("generating_audiobook", False):
             if st.button("🚫 Cancel Generation", type="secondary"):
-                with open("cancel_audio.flag", "w") as f:
-                    f.write("cancel")
+                TaskStateManager.cancel_task("audio")
                 st.session_state["generating_audiobook"] = False
                 st.rerun()
         else:
@@ -760,8 +756,7 @@ elif page == "Audio Hub":
             if chapter_counter == 0:
                 st.warning("No chapters processed yet.")
             else:
-                if os.path.exists("cancel_audio.flag"):
-                    os.remove("cancel_audio.flag")
+                TaskStateManager.clear_cancel("audio")
                 st.session_state["generating_audiobook"] = True
                 st.rerun()
 
@@ -773,7 +768,7 @@ elif page == "Audio Hub":
                 if result:
                     st.session_state["ab_success_msg"] = f"Audiobook for Chapter {chapter_to_sync} complete!"
                 else:
-                    if os.path.exists("cancel_audio.flag"):
+                    if TaskStateManager.is_cancelled("audio"):
                         st.info("Generation cancelled by user.")
                     else:
                         logger.error(f"Audiobook generation returned None for chapter {chapter_to_sync} (engine: {engine_type_ab}). Check log above for details.")
@@ -783,8 +778,7 @@ elif page == "Audio Hub":
                 st.error(f"Error generating audiobook: {e}")
             finally:
                 st.session_state["generating_audiobook"] = False
-                if os.path.exists("cancel_audio.flag"):
-                    os.remove("cancel_audio.flag")
+                TaskStateManager.clear_cancel("audio")
                 st.rerun()
 
     # Serve Audio Player Statically from Disk

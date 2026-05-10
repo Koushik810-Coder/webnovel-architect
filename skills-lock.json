@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "4cba41db3e691cd6b00beb95990b3c852e2854f0b5a6d77e7b8667db3c64818a"
     },
+    "code-upgrade": {
+      "source": "robinebers/skills",
+      "sourceType": "github",
+      "skillPath": "skills/code-upgrade/SKILL.md",
+      "computedHash": "742b201334d69f5910675503412b63e492370a9eac8132f07c0f0c8add7ff0a2"
+    },
     "conversation-memory": {
       "source": "davila7/claude-code-templates",
       "sourceType": "github",
@@ -59,6 +65,18 @@
       "source": "sickn33/antigravity-awesome-skills",
       "sourceType": "github",
       "computedHash": "53e6cd0e717c68d04004fa367c8d8660d8c3edf206552ead9d69b63ba59c2199"
+    },
+    "setup-process": {
+      "source": "robinebers/skills",
+      "sourceType": "github",
+      "skillPath": "skills/setup-process/SKILL.md",
+      "computedHash": "e32b6fab2fcebaa48709231009aa41c37790965ff828fd4d2e6e12327ab39acb"
+    },
+    "shepherd": {
+      "source": "robinebers/skills",
+      "sourceType": "github",
+      "skillPath": "skills/shepherd/SKILL.md",
+      "computedHash": "cbf10288809e4ea71ec9c14712a98baaef1ea93f6f5b78c33d19416614021190"
     },
     "skill-creator": {
       "source": "anthropics/skills",

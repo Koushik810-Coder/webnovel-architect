@@ -487,12 +487,12 @@ If a field is genuinely unknown, use null or an empty list — do NOT use placeh
     try:
         updated_profile = analyze_text_json(prompt, model=get_llm_model())
         if not updated_profile:
-            return {}
+            raise ValueError(f"LLM returned empty or malformed JSON for {character_name}.")
         logger.info(f"Dynamically updated wiki profile for {character_name}")
         return updated_profile
     except Exception as e:
         logger.error(f"Failed to dynamically update profile for {character_name}. Error: {e}")
-        return {}
+        raise ValueError(f"LLM extraction failed for {character_name}: {e}") from e
 
 
 def batch_update_character_profiles(

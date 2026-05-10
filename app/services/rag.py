@@ -306,6 +306,9 @@ Respond ONLY with a valid JSON object matching this exact schema:
 
     try:
         profile = analyze_text_json(prompt, model=model)
+        if not profile:
+            raise ValueError(f"LLM returned empty or malformed JSON for {character_name}.")
+            
         if profile and mode == "reader":
             # Apply spoiler rewrite to the narrative fields
             if "short_description" in profile:
@@ -313,12 +316,11 @@ Respond ONLY with a valid JSON object matching this exact schema:
             if "synopsis" in profile:
                 profile["synopsis"] = rewrite_for_spoiler_free(profile["synopsis"])
         
-        if profile:
-            logger.info(f"RAG enrichment produced profile for '{character_name}' from {len(retrieved_events)} events.")
-        return profile or {}
+        logger.info(f"RAG enrichment produced profile for '{character_name}' from {len(retrieved_events)} events.")
+        return profile
     except Exception as e:
         logger.error(f"RAG enrichment failed for '{character_name}': {e}")
-        return {}
+        raise ValueError(f"RAG enrichment failed for '{character_name}': {e}") from e
 
 def query_story_with_filter(
     story_uuid: str, 

@@ -11,7 +11,7 @@ from app.services.ingest import ingest_multiple_chapters
 # NOTE: @patch decorators are applied bottom-up, so the argument order
 # in the test function matches the decoration order from bottom to top.
 
-@patch('os.path.exists', return_value=False)   # prevent cancel_ingestion.flag from breaking tests
+@patch('app.core.utils.TaskStateManager.is_cancelled', return_value=False)   # prevent cancel_ingestion.flag from breaking tests
 @patch('app.services.ingest.ingest_chapter')
 @patch('app.services.scrapers.royalroad_scraper.RoyalRoadScraper.scrape_chapter')
 def test_ingest_multiple_chapters_with_urls(mock_scrape, mock_ingest, mock_exists):
@@ -44,7 +44,7 @@ def test_ingest_multiple_chapters_with_urls(mock_scrape, mock_ingest, mock_exist
     assert progress_calls == [(1, 2), (2, 2)]
 
 
-@patch('os.path.exists', return_value=False)   # prevent cancel_ingestion.flag from breaking tests
+@patch('app.core.utils.TaskStateManager.is_cancelled', return_value=False)   # prevent cancel_ingestion.flag from breaking tests
 @patch('app.services.ingest.ingest_chapter')
 def test_ingest_multiple_chapters_with_text(mock_ingest, mock_exists):
     """Chapters provided as pre-loaded text should be ingested directly."""

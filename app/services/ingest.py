@@ -25,12 +25,13 @@ from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
 from adapters.graph_adapter import get_graph_engine
 from app.services.alias_resolver import resolve_aliases_with_map
+from app.core.utils import TaskStateManager
 
 logger = get_logger(__name__)
 
 # Sentinel file written by the UI to cancel a running batch ingestion.
 # Placed in the process CWD (project root) for simplicity.
-_CANCEL_FLAG = "cancel_ingestion.flag"
+# Now handled via TaskStateManager
 
 def normalize_id(name: str) -> str:
     """
@@ -76,6 +77,7 @@ def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, Ch
         chapter_counter (int): The current chapter count.
         runtime_db (Dict[str, CharacterRuntime]): Dictionary mapping character IDs to their runtime models.
     """
+    import pathlib
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "runtime_db.json")
     
     data = {
@@ -83,8 +85,10 @@ def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, Ch
         "characters": {k: v.model_dump() for k, v in runtime_db.items()}
     }
     
-    with open(path, "w") as f:
+    tmp_path = pathlib.Path(path).with_suffix(".tmp")
+    with open(tmp_path, "w") as f:
         json.dump(data, f, indent=4)
+    tmp_path.replace(path)
         
     # Also touch the story updated_at
     StoryManager._touch_updated_at(story_uuid)
@@ -232,11 +236,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     chapter_counter, runtime_db = load_runtime(story_uuid)
     
     # Check for cancellation flag (shared with batch ingestion)
-    if os.path.exists(_CANCEL_FLAG):
-        with open(_CANCEL_FLAG, "r") as f:
-            if f.read().strip() == "cancel":
-                logger.warning(f"Ingestion of '{title}' cancelled by user flag.")
-                return None
+    if TaskStateManager.is_cancelled("ingestion"):
+        if TaskStateManager.get_cancel_reason("ingestion") == "cancel":
+            logger.warning(f"Ingestion of '{title}' cancelled by user flag.")
+            return None
     
     logger.info(f"Ingesting chapter: '{title}' for story {story_uuid} using extractor '{extractor}'")
     
@@ -666,14 +669,16 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         try:
             build_location_page(story_uuid, _loc_id, graph)
         except Exception as e:
-            logger.warning(f"Location wiki generation failed for '{_loc_id}': {e}")
+            logger.error(f"Location wiki generation failed for '{_loc_id}': {e}")
+            raise ValueError(f"Location wiki generation failed for '{_loc_id}': {e}") from e
 
     # Build event wiki pages for this chapter's events
     for _evt_id in event_ids if events else []:
         try:
             build_event_page(story_uuid, _evt_id, graph)
         except Exception as e:
-            logger.warning(f"Event wiki generation failed for '{_evt_id}': {e}")
+            logger.error(f"Event wiki generation failed for '{_evt_id}': {e}")
+            raise ValueError(f"Event wiki generation failed for '{_evt_id}': {e}") from e
 
     # Trigger batched arc detection every 5 chapters
     if chapter_counter > 0 and chapter_counter % 5 == 0:
@@ -689,7 +694,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     try:
                         build_arc_page(story_uuid, _node, graph)
                     except Exception as e:
-                        logger.warning(f"Arc wiki generation failed for '{_node}': {e}")
+                        logger.error(f"Arc wiki generation failed for '{_node}': {e}")
+                        raise ValueError(f"Arc wiki generation failed for '{_node}': {e}") from e
         except Exception as e:
             logger.error(f"Arc detection failed: {e}")
 
@@ -717,13 +723,13 @@ def ingest_multiple_chapters(
     total = len(chapters)
     _scraper = None  # lazy-init once if any chapter needs URL scraping
     
-    if os.path.exists(_CANCEL_FLAG):
-        os.remove(_CANCEL_FLAG)
+    if TaskStateManager.is_cancelled("ingestion"):
+        TaskStateManager.clear_cancel("ingestion")
         logger.info("Cleared old cancel_ingestion.flag")
     
     try:
         for i, chap_data in enumerate(chapters):
-            if os.path.exists(_CANCEL_FLAG):
+            if TaskStateManager.is_cancelled("ingestion"):
                 logger.info("Batch ingestion cancelled by user.")
                 break
                 
@@ -759,18 +765,16 @@ def ingest_multiple_chapters(
                 # user-triggered batch will start from this chapter automatically.
                 err_msg = str(e)
                 logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {err_msg}")
-                with open(_CANCEL_FLAG, "w") as f:
-                    f.write(f"error: {err_msg}")
+                TaskStateManager.cancel_task("ingestion", f"error: {err_msg}")
                 break
             
             if progress_callback is not None:
                 progress_callback(i + 1, total)
     finally:
-        if os.path.exists(_CANCEL_FLAG):
+        if TaskStateManager.is_cancelled("ingestion"):
             # Only remove if it's a simple 'cancel' to avoid clearing error flags prematurely
-            with open(_CANCEL_FLAG, "r") as f:
-                if f.read().strip() == "cancel":
-                    os.remove(_CANCEL_FLAG)
-                    logger.info("Cleared cancel_ingestion.flag on exit")
+            if TaskStateManager.get_cancel_reason("ingestion") == "cancel":
+                TaskStateManager.clear_cancel("ingestion")
+                logger.info("Cleared cancel_ingestion.flag on exit")
     
     return ingested_chapters
