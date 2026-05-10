@@ -1,5 +1,6 @@
 import os
 import json
+import pathlib
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict, Tuple, List, Optional, Callable
@@ -25,20 +26,11 @@ from app.core.story_manager import StoryManager
 from app.core.logger import get_logger
 from adapters.graph_adapter import get_graph_engine
 from app.services.alias_resolver import resolve_aliases_with_map
-from app.core.utils import TaskStateManager
+from app.core.utils import TaskStateManager, normalize_id
 
 logger = get_logger(__name__)
 
-# Sentinel file written by the UI to cancel a running batch ingestion.
-# Placed in the process CWD (project root) for simplicity.
-# Now handled via TaskStateManager
-
-def normalize_id(name: str) -> str:
-    """
-    Converts a display name (e.g., 'Lord Stark') to a unique ID (e.g., 'lord_stark').
-    Used for linking Wiki entries to Runtime stats.
-    """
-    return name.lower().replace(" ", "_")
+# normalize_id is the single source of truth in app.core.utils — imported above.
 
 def load_runtime(story_uuid: str) -> Tuple[int, Dict[str, CharacterRuntime]]:
     """
@@ -71,13 +63,12 @@ def load_runtime(story_uuid: str) -> Tuple[int, Dict[str, CharacterRuntime]]:
 def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, CharacterRuntime]):
     """
     Saves the character runtime database and chapter counter to disk.
-    
+
     Args:
         story_uuid (str): The unique identifier for the story.
         chapter_counter (int): The current chapter count.
         runtime_db (Dict[str, CharacterRuntime]): Dictionary mapping character IDs to their runtime models.
     """
-    import pathlib
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "runtime_db.json")
     
     data = {
@@ -127,10 +118,53 @@ def load_index_state(story_uuid: str) -> Optional[Dict]:
     return None
 
 def save_index_state(story_uuid: str, state: Dict):
-    """Saves the index state (e.g., scraped chapters and last ingested index)."""
+    """Saves the index state (e.g., scraped chapters and last ingested index).
+
+    Uses an atomic tmp→rename write so a crash mid-write never leaves a corrupt file.
+    """
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "index_state.json")
-    with open(path, "w", encoding="utf-8") as f:
+    tmp_path = pathlib.Path(path).with_suffix(".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=4)
+    tmp_path.replace(path)
+
+
+# ---------------------------------------------------------------------------
+# Batch state persistence — lets the UI restore progress after page navigation
+# ---------------------------------------------------------------------------
+
+def load_batch_state(story_uuid: str) -> Optional[Dict]:
+    """Returns the persisted batch ingestion state, or None if not running."""
+    path = os.path.join(StoryManager.DATA_DIR, story_uuid, "batch_state.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+    return None
+
+
+def save_batch_state(story_uuid: str, state: Dict) -> None:
+    """Persists batch ingestion progress to disk atomically."""
+    path = os.path.join(StoryManager.DATA_DIR, story_uuid, "batch_state.json")
+    tmp_path = pathlib.Path(path).with_suffix(".tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=4)
+        tmp_path.replace(path)
+    except OSError as e:
+        logger.warning(f"Could not persist batch state: {e}")
+
+
+def clear_batch_state(story_uuid: str) -> None:
+    """Removes the batch state file once ingestion completes or is cancelled."""
+    path = os.path.join(StoryManager.DATA_DIR, story_uuid, "batch_state.json")
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError as e:
+        logger.warning(f"Could not clear batch state: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +224,31 @@ def _check_fixer_triggers(events: list) -> list:
 # Public ingestion functions
 # ---------------------------------------------------------------------------
 
+def _find_existing_chapter_id(story_uuid: str, title: str) -> Optional[int]:
+    """
+    Returns the chapter ID if a chapter with *title* has already been ingested,
+    or None if this is a new chapter.
+
+    Used as a re-ingest guard so a crash-retry or double-click cannot create
+    duplicate events and counter drift in the graph.
+    """
+    chapters_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters")
+    if not os.path.exists(chapters_dir):
+        return None
+    for ch_id in os.listdir(chapters_dir):
+        meta_path = os.path.join(chapters_dir, ch_id, "metadata.json")
+        if not os.path.exists(meta_path):
+            continue
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            if meta.get("title") == title:
+                return int(meta.get("id", ch_id))
+        except Exception:
+            pass
+    return None
+
+
 def _get_previous_chapter_context(story_uuid: str, chapter_id: int, num_paragraphs: int = 2) -> Optional[str]:
     """
     Reads the last N paragraphs of the previous chapter to provide context
@@ -234,7 +293,29 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         Chapter: The fully processed and persisted Chapter object.
     """
     chapter_counter, runtime_db = load_runtime(story_uuid)
-    
+
+    # Re-ingest guard — prevents duplicate events / counter drift on crash-retry or double-submit
+    existing_id = _find_existing_chapter_id(story_uuid, title)
+    if existing_id is not None:
+        logger.warning(
+            f"Chapter '{title}' was already ingested as chapter {existing_id}. "
+            f"Skipping to prevent duplicate graph data."
+        )
+        # Load and return the existing Chapter object so callers behave normally
+        try:
+            chapter_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(existing_id))
+            with open(os.path.join(chapter_dir, "metadata.json"), "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            with open(os.path.join(chapter_dir, "text.txt"), "r", encoding="utf-8") as f:
+                ch_text = f.read()
+            return Chapter(
+                id=meta["id"], title=meta["title"], raw_text=ch_text,
+                created_at=datetime.fromisoformat(meta["created_at"])
+            )
+        except Exception as e:
+            logger.warning(f"Could not reconstruct existing Chapter object for '{title}': {e}")
+            return None
+
     # Check for cancellation flag (shared with batch ingestion)
     if TaskStateManager.is_cancelled("ingestion"):
         if TaskStateManager.get_cancel_reason("ingestion") == "cancel":
@@ -658,7 +739,8 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     save_runtime(story_uuid, chapter_counter, runtime_db)
     
     # ── Generate Location & Event wiki pages from graph data ──────────────
-    # Collect unique locations from this chapter's events
+    # These are *enrichment* steps — a failure must not abort the chapter ingest
+    # (all graph writes have already been persisted above). Warn and continue.
     _chapter_locations = set()
     for _evt in events:
         _loc = _evt.get("location")
@@ -669,16 +751,14 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         try:
             build_location_page(story_uuid, _loc_id, graph)
         except Exception as e:
-            logger.error(f"Location wiki generation failed for '{_loc_id}': {e}")
-            raise ValueError(f"Location wiki generation failed for '{_loc_id}': {e}") from e
+            logger.warning(f"Location wiki generation failed for '{_loc_id}' (non-fatal): {e}")
 
     # Build event wiki pages for this chapter's events
     for _evt_id in event_ids if events else []:
         try:
             build_event_page(story_uuid, _evt_id, graph)
         except Exception as e:
-            logger.error(f"Event wiki generation failed for '{_evt_id}': {e}")
-            raise ValueError(f"Event wiki generation failed for '{_evt_id}': {e}") from e
+            logger.warning(f"Event wiki generation failed for '{_evt_id}' (non-fatal): {e}")
 
     # Trigger batched arc detection every 5 chapters
     if chapter_counter > 0 and chapter_counter % 5 == 0:
@@ -694,8 +774,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                     try:
                         build_arc_page(story_uuid, _node, graph)
                     except Exception as e:
-                        logger.error(f"Arc wiki generation failed for '{_node}': {e}")
-                        raise ValueError(f"Arc wiki generation failed for '{_node}': {e}") from e
+                        logger.warning(f"Arc wiki generation failed for '{_node}' (non-fatal): {e}")
         except Exception as e:
             logger.error(f"Arc detection failed: {e}")
 
