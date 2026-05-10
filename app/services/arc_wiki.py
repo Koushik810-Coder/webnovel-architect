@@ -172,7 +172,7 @@ Return a valid JSON object matching this schema. Be analytical about the narrati
     wiki = ArcWiki(
         arc_id=arc_id,
         version=(existing.version + 1) if existing else 1,
-        generated_at=datetime.datetime.utcnow().isoformat(),
+        generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
         graph_snapshot_id=current_hash,
         display_name=arc_data.get("label", arc_id.replace("_", " ").title()),
         theme=result.get("theme", "Unknown Theme"),

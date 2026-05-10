@@ -251,19 +251,20 @@ if not st.session_state['active_story_uuid']:
     
 active_story_uuid = st.session_state['active_story_uuid']
 
+# --- Global State Loading ---
+try:
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+except FileNotFoundError:
+    st.error("`config.yaml` not found. Please restore it from the repository root.")
+    st.stop()
+
+chapter_counter, runtime_db = load_runtime(active_story_uuid)
+
 # --- Page Router ---
 if page == "Dashboard":
     st.header("Dashboard Metrics")
     st.markdown("Welcome to Webnovel Architect. Use the sidebar to navigate.")
-    
-    try:
-        with open("config.yaml", "r") as f:
-            config = yaml.safe_load(f)
-    except FileNotFoundError:
-        st.error("`config.yaml` not found. Please restore it from the repository root.")
-        st.stop()
-        
-    chapter_counter, runtime_db = load_runtime(active_story_uuid)
         
     col1, col2, col3 = st.columns(3)
     col1.metric("Processed Chapters", chapter_counter)
@@ -428,6 +429,30 @@ elif page == "Ingestion Engine":
                 # A batch is running (possibly started before the user navigated away)
                 st.session_state["generating_batch"] = True
                 st.session_state["_disk_batch"] = disk_batch
+            elif disk_batch and not disk_batch.get("is_running"):
+                # A batch finished or was cancelled
+                status = disk_batch.get("status")
+                processed = disk_batch.get("processed_count", 0)
+                if status == "success":
+                    st.success(f"Successfully processed {processed} chapters!")
+                    st.balloons()
+                elif status == "error":
+                    st.error(f"Batch ingestion failed: {disk_batch.get('error_msg')}")
+                elif status == "cancelled":
+                    st.warning(f"Batch ingestion was stopped. Successfully processed {processed} chapters before stopping.")
+                
+                st.session_state["generating_batch"] = False
+                st.session_state.pop("_disk_batch", None)
+                clear_batch_state(active_story_uuid)
+                disk_batch = None
+                
+                # Resync index state from disk just in case
+                from app.services.ingest import load_index_state
+                saved_idx = load_index_state(active_story_uuid)
+                if saved_idx and "last_ingested_index" in saved_idx:
+                    st.session_state['last_ingested_index'] = saved_idx["last_ingested_index"]
+                    next_to_ingest = saved_idx["last_ingested_index"] + 1
+
             elif not disk_batch and st.session_state.get("generating_batch", False):
                 # Disk state was cleared (batch finished) but session_state is stale
                 st.session_state["generating_batch"] = False
@@ -452,11 +477,19 @@ elif page == "Ingestion Engine":
                         f"{len(index_chapters)} total chapters in the index."
                     )
 
-                    if st.button("🚫 Stop Ingestion", type="secondary", key="stop_batch_btn"):
-                        TaskStateManager.cancel_task("ingestion")
-                        st.session_state["generating_batch"] = False
-                        clear_batch_state(active_story_uuid)
-                        st.rerun()
+                    if TaskStateManager.is_cancelled("ingestion"):
+                        st.warning("Stopping... Waiting for the current chapter to finish.")
+                        if st.button("⚠️ Force Clear State", help="Click if server restarted and progress is stuck forever."):
+                            st.session_state["generating_batch"] = False
+                            st.session_state.pop("_disk_batch", None)
+                            TaskStateManager.clear_cancel("ingestion")
+                            clear_batch_state(active_story_uuid)
+                            st.rerun()
+                    else:
+                        if st.button("🚫 Stop Ingestion", type="secondary", key="stop_batch_btn"):
+                            TaskStateManager.cancel_task("ingestion")
+                            # Give the background thread a moment to see the flag before UI refreshes
+                            st.rerun()
 
                     # Auto-refresh every 2 s to pick up progress written to disk
                     time.sleep(2)
@@ -493,74 +526,55 @@ elif page == "Ingestion Engine":
                         save_batch_state(active_story_uuid, initial_batch_state)
                         st.session_state["generating_batch"] = True
                         st.session_state["_disk_batch"] = initial_batch_state
+                        
+                        import threading
+                        
+                        # Set up parameters for the thread
+                        _b_start = next_to_ingest
+                        _b_size = batch_size
+                        chapters_to_process = index_chapters[_b_start : _b_start + _b_size]
+                        
+                        def run_batch(story_id, chapters, ext, decay, start_idx):
+                            from app.services.ingest import ingest_multiple_chapters, load_index_state, save_index_state, save_batch_state
+                            
+                            def update_progress(current, total):
+                                new_last_index = start_idx + current - 1
+                                saved_state = load_index_state(story_id) or {}
+                                saved_state["last_ingested_index"] = new_last_index
+                                save_index_state(story_id, saved_state)
+                                
+                                save_batch_state(story_id, {
+                                    "is_running": True,
+                                    "batch_start_index": start_idx,
+                                    "batch_size": total,
+                                    "batch_completed": current,
+                                    "story_uuid": story_id,
+                                })
+                            
+                            try:
+                                ingested = ingest_multiple_chapters(
+                                    story_id, chapters, extractor=ext, decay_rate=decay, progress_callback=update_progress
+                                )
+                                
+                                cancel_reason = TaskStateManager.get_cancel_reason("ingestion")
+                                if cancel_reason.startswith("error:"):
+                                    save_batch_state(story_id, {"is_running": False, "status": "error", "error_msg": cancel_reason[6:]})
+                                    TaskStateManager.clear_cancel("ingestion")
+                                elif len(ingested) < len(chapters):
+                                    save_batch_state(story_id, {"is_running": False, "status": "cancelled", "processed_count": len(ingested)})
+                                else:
+                                    save_batch_state(story_id, {"is_running": False, "status": "success", "processed_count": len(ingested)})
+                            except Exception as e:
+                                save_batch_state(story_id, {"is_running": False, "status": "error", "error_msg": str(e)})
+                                
+                        # Launch background task
+                        threading.Thread(
+                            target=run_batch,
+                            args=(active_story_uuid, chapters_to_process, extractor_method, decay_rate, _b_start),
+                            daemon=True
+                        ).start()
+                        
                         st.rerun()
-
-                # ── The actual ingestion runs here (only once per launch) ───
-                # We detect a "first entry" by checking that _disk_batch exists
-                # but batch_completed == 0 AND no prior run marker in session.
-                _launch_key = f"_batch_launched_{active_story_uuid}_{next_to_ingest}"
-                disk_batch_now = load_batch_state(active_story_uuid)
-                if (
-                    st.session_state.get("generating_batch", False)
-                    and disk_batch_now
-                    and disk_batch_now.get("is_running")
-                    and not st.session_state.get(_launch_key, False)
-                ):
-                    st.session_state[_launch_key] = True  # mark as launched
-                    _b_start = disk_batch_now["batch_start_index"]
-                    _b_size  = disk_batch_now["batch_size"]
-                    chapters_to_process = index_chapters[_b_start : _b_start + _b_size]
-
-                    def update_progress(current, total):
-                        # Update index_state on disk so chapter pointer advances
-                        new_last_index = _b_start + current - 1
-                        st.session_state['last_ingested_index'] = new_last_index
-                        saved_state = load_index_state(active_story_uuid) or {}
-                        saved_state["last_ingested_index"] = new_last_index
-                        save_index_state(active_story_uuid, saved_state)
-
-                        # Also update batch_state so the progress panel is accurate
-                        save_batch_state(active_story_uuid, {
-                            "is_running": True,
-                            "batch_start_index": _b_start,
-                            "batch_size": total,
-                            "batch_completed": current,
-                            "story_uuid": active_story_uuid,
-                        })
-
-                    try:
-                        ingested = ingest_multiple_chapters(
-                            active_story_uuid,
-                            chapters_to_process,
-                            extractor=extractor_method,
-                            decay_rate=decay_rate,
-                            progress_callback=update_progress,
-                        )
-
-                        if TaskStateManager.is_cancelled("ingestion"):
-                            stop_reason = TaskStateManager.get_cancel_reason("ingestion")
-                            if stop_reason.startswith("error:"):
-                                st.error(
-                                    f"Batch ingestion stopped due to an error: "
-                                    f"{stop_reason[6:].strip()}.\n"
-                                    f"Successfully processed {len(ingested)} chapters before stopping."
-                                )
-                            else:
-                                st.warning(
-                                    f"Batch ingestion was stopped. "
-                                    f"Successfully processed {len(ingested)} chapters before stopping."
-                                )
-                        else:
-                            st.success(f"Successfully processed {len(ingested)} chapters!")
-                            st.balloons()
-                    except Exception as e:
-                        st.error(f"Batch ingestion failed: {e}")
-                    finally:
-                        st.session_state["generating_batch"] = False
-                        st.session_state.pop(_launch_key, None)
-                        st.session_state.pop("_disk_batch", None)
-                        TaskStateManager.clear_cancel("ingestion")
-                        clear_batch_state(active_story_uuid)
                     
     # EPUB Chapter Selection
     elif 'parsed_epub_chapters' in st.session_state and st.session_state['parsed_epub_chapters']:
@@ -629,8 +643,6 @@ elif page == "Wiki Memory":
         mode = mode_map[wiki_mode]
     
     with col_chap:
-        from app.services.ingest import load_runtime
-        chapter_counter, _ = load_runtime(active_story_uuid)
         reader_chapter = st.number_input("Reader's Current Chapter", min_value=0, max_value=chapter_counter if chapter_counter > 0 else 999, value=chapter_counter if chapter_counter > 0 else 0)
     
     with col_pov:
@@ -771,15 +783,6 @@ elif page == "Wiki Memory":
 elif page == "Audio Hub":
     st.header("Audio Hub")
     st.markdown("Generate and test audio for graduated characters.")
-    
-    try:
-        with open("config.yaml", "r") as f:
-            config = yaml.safe_load(f)
-    except FileNotFoundError:
-        st.error("`config.yaml` not found. Please restore it from the repository root.")
-        st.stop()
-        
-    chapter_counter, runtime_db = load_runtime(active_story_uuid)
     
     st.subheader("📚 Full Chapter Audiobook")
     st.markdown("Synthesize a dynamic, multi-voice audiobook for a complete chapter. (Bypasses graduation threshold)")
@@ -1004,8 +1007,6 @@ elif page == "Story Q&A":
             qa_mode_sel = st.selectbox("Answer Perspective", ["Full Knowledge (Spoilers)", "Reader Safe (No Spoilers)"], index=0)
             qa_mode = "god" if "Full" in qa_mode_sel else "reader"
         with col2:
-            from app.services.ingest import load_runtime
-            chapter_counter, _ = load_runtime(active_story_uuid)
             qa_reader_chapter = st.number_input("Assume Reader at Chapter", min_value=0, max_value=chapter_counter if chapter_counter > 0 else 999, value=chapter_counter if chapter_counter > 0 else 0, key="qa_chapter")
         with col3:
             st.write("") # spacing

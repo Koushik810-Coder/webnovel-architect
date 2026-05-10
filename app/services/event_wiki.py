@@ -188,7 +188,7 @@ Return a valid JSON object matching this schema. Preserve the participant roles 
     wiki = EventWiki(
         event_id=event_id,
         version=(existing.version + 1) if existing else 1,
-        generated_at=datetime.datetime.utcnow().isoformat(),
+        generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
         graph_snapshot_id=current_hash,
         display_name=result.get("display_name", event_id),
         summary=result.get("summary", event_data.get("description", "")),

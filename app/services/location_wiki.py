@@ -164,7 +164,7 @@ Return a valid JSON object matching this schema:
     wiki = LocationWiki(
         location_id=location_id,
         version=(existing.version + 1) if existing else 1,
-        generated_at=datetime.datetime.utcnow().isoformat(),
+        generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
         graph_snapshot_id=current_hash,
         display_name=location_id.replace("_", " ").title(),
         description=result.get("description", "A location in the story."),

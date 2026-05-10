@@ -279,11 +279,11 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
         
     active_characters = result.get("active_character_names", [])
     if not isinstance(active_characters, list):
-        active_characters = []
+        raise ValueError(f"Expected 'active_character_names' to be a list, got {type(active_characters)}")
     
     active_world_terms = result.get("active_world_terms", [])
     if not isinstance(active_world_terms, list):
-        active_world_terms = []
+        raise ValueError(f"Expected 'active_world_terms' to be a list, got {type(active_world_terms)}")
         
     dialogue_count = result.get("dialogue_count_total", 0)
     if not isinstance(dialogue_count, int):
@@ -294,7 +294,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
         
     events = result.get("events", [])
     if not isinstance(events, list):
-        events = []
+        raise ValueError(f"Expected 'events' to be a list, got {type(events)}")
         
     # Validate types to prevent downstream crashes if LLM hallucinates strings instead of expected types
     active_characters = [str(c) for c in active_characters if c is not None]
@@ -303,7 +303,7 @@ def extract_chapter_intelligence_llm(text: str, model: str = None, previous_cont
     
     character_genders = result.get("character_genders", {})
     if not isinstance(character_genders, dict):
-        character_genders = {}
+        raise ValueError(f"Expected 'character_genders' to be a dict, got {type(character_genders)}")
         
     # Deduplicate and sort
     active_characters = sorted(list(set(active_characters)))

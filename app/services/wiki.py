@@ -897,7 +897,7 @@ def enrich_wiki_from_rag(
     # Update versioning meta
     enriched.version = existing.version + 1
     enriched.graph_snapshot_id = current_hash
-    enriched.generated_at = datetime.datetime.utcnow().isoformat()
+    enriched.generated_at = datetime.datetime.now(datetime.UTC).isoformat()
     
     save_character_wiki(story_uuid, enriched)
     logger.info(f"Wiki enriched and saved for '{character_name}'.")

@@ -244,8 +244,10 @@ def _find_existing_chapter_id(story_uuid: str, title: str) -> Optional[int]:
                 meta = json.load(f)
             if meta.get("title") == title:
                 return int(meta.get("id", ch_id))
-        except Exception:
-            pass
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Corrupted metadata at {meta_path}: {e}")
+        except Exception as e:
+            logger.warning(f"Could not read existing chapter metadata for {ch_id}: {e}")
     return None
 
 
