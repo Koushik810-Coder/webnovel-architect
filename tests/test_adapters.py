@@ -1,11 +1,8 @@
 from unittest.mock import patch, MagicMock
+import pytest
 
 from adapters.llm_adapter import analyze_text
-# Assuming tts_adapter has functions. If not, testing what is there or omit it.
-try:
-    from adapters.tts_adapter import generate_audio
-except ImportError:
-    generate_audio = None
+from adapters.tts_adapter import get_tts_engine, EdgeAdapter
 
 def test_analyze_text_success():
     mock_litellm = MagicMock()
@@ -30,3 +27,20 @@ def test_analyze_text_failure():
     with patch.dict('sys.modules', {'litellm': mock_litellm}):
         result = analyze_text("This is test text.", "test-model")
         assert result and "All LLM tiers exhausted" in result
+
+def test_get_tts_engine_edge():
+    engine = get_tts_engine("edge")
+    assert isinstance(engine, EdgeAdapter)
+
+def test_get_tts_engine_invalid():
+    with pytest.raises(ValueError, match="Unknown TTS Engine"):
+        get_tts_engine("unknown_engine_type")
+
+@patch('adapters.tts_adapter.KokoroAdapter')
+def test_get_tts_engine_kokoro_fallback(mock_kokoro_class):
+    mock_instance = MagicMock()
+    mock_instance.engine = None
+    mock_kokoro_class.return_value = mock_instance
+
+    engine = get_tts_engine("kokoro")
+    assert isinstance(engine, EdgeAdapter)

@@ -1,0 +1,2 @@
+{"id":"int-c2b71890","kind":"field_change","created_at":"2026-05-10T17:03:41.9984467Z","actor":"Koushik810-Coder","issue_id":"webnovel-architect-8yn","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-e00f0ed6","kind":"field_change","created_at":"2026-05-10T17:17:25.947097Z","actor":"Koushik810-Coder","issue_id":"webnovel-architect-8yn","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
