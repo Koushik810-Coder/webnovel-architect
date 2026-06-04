@@ -15,7 +15,8 @@ def test_sliding_window_context_passed_to_extraction(mock_get_graph_engine, mock
     should be passed to the extraction layer as previous_context.
     """
     mock_gp = MagicMock()
-    mock_gp.graph.nodes = lambda data: []
+    mock_gp.graph.nodes = MagicMock(return_value=[])
+    mock_gp.graph.nodes.__iter__ = MagicMock(return_value=iter([]))
     mock_get_graph_engine.return_value = mock_gp
 
     mock_extract.return_value = {"events": []}

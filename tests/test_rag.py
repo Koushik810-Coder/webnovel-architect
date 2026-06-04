@@ -180,8 +180,8 @@ def test_query_story_with_filter(populated_graph, story_uuid):
 
     with patch("app.services.rag.get_graph_engine", return_value=populated_graph):
         with patch("app.services.wiki_filter.get_graph_engine", return_value=populated_graph):
-            with patch("adapters.llm_adapter.analyze_text_json", return_value=intent_payload):
-                with patch("adapters.llm_adapter.analyze_text", side_effect=mock_analyze):
+            with patch("app.services.rag.analyze_text_json", return_value=intent_payload):
+                with patch("app.services.rag.analyze_text", side_effect=mock_analyze):
                     from app.services.rag import query_story_with_filter
                     result = query_story_with_filter(story_uuid, "Show me Zorian before Kirielle is endangered")
 

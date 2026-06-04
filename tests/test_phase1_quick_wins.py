@@ -145,7 +145,7 @@ class TestLLMPromptCache:
     calling litellm."""
 
     def test_cache_hit_returns_same_result(self, tmp_path, monkeypatch):
-        from adapters.llm_adapter import analyze_text_json
+        from adapters import llm_adapter
 
         call_count = {"n": 0}
         fake_result = {"active_character_names": ["Alice"]}
@@ -154,19 +154,19 @@ class TestLLMPromptCache:
             call_count["n"] += 1
             return True, fake_result
 
-        monkeypatch.setattr("adapters.llm_adapter._run_with_retry", fake_run_with_retry)
+        monkeypatch.setattr(llm_adapter, "_run_with_retry", fake_run_with_retry)
         monkeypatch.setenv("LLM_CACHE_DIR", str(tmp_path))
 
         prompt = "unique test prompt abc123"
-        r1 = analyze_text_json(prompt, model="groq/llama-3.1-8b-instant")
-        r2 = analyze_text_json(prompt, model="groq/llama-3.1-8b-instant")
+        r1 = llm_adapter.analyze_text_json(prompt, model="groq/llama-3.1-8b-instant")
+        r2 = llm_adapter.analyze_text_json(prompt, model="groq/llama-3.1-8b-instant")
 
         assert r1 == r2
         # Second call must be served from cache — no extra LLM hit
         assert call_count["n"] == 1
 
     def test_different_model_is_separate_cache_entry(self, tmp_path, monkeypatch):
-        from adapters.llm_adapter import analyze_text_json
+        from adapters import llm_adapter
 
         results = {"a": {"model": "A"}, "b": {"model": "B"}}
         call_seq = iter([results["a"], results["b"]])
@@ -174,12 +174,12 @@ class TestLLMPromptCache:
         def fake_run_with_retry(*args, **kwargs):
             return True, next(call_seq)
 
-        monkeypatch.setattr("adapters.llm_adapter._run_with_retry", fake_run_with_retry)
+        monkeypatch.setattr(llm_adapter, "_run_with_retry", fake_run_with_retry)
         monkeypatch.setenv("LLM_CACHE_DIR", str(tmp_path))
 
         prompt = "same prompt"
-        r_a = analyze_text_json(prompt, model="groq/model-a")
-        r_b = analyze_text_json(prompt, model="groq/model-b")
+        r_a = llm_adapter.analyze_text_json(prompt, model="groq/model-a")
+        r_b = llm_adapter.analyze_text_json(prompt, model="groq/model-b")
         assert r_a != r_b
 
     def test_cache_persists_across_calls(self, tmp_path, monkeypatch):

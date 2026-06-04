@@ -13,6 +13,7 @@ from unittest.mock import patch, MagicMock
 from app.services.audio_renderer import render_segments
 from app.services.ingest import ingest_chapter
 from app.core.models.narration import NarrationSegment
+from app.core.constants import NARRATOR_VOICE_ID
 
 
 # ── audio_renderer ────────────────────────────────────────────────────────────
@@ -33,7 +34,10 @@ def test_render_segments(mock_get_provider):
     assert len(result) == 2
     assert result == [b"audio_data", b"audio_data"]
     assert mock_provider.synthesize.call_count == 2
+    # First segment uses the explicit voice
     mock_provider.synthesize.assert_any_call("Hello", "v1")
+    # Second segment (voice_id=None) must fall back to the narrator default
+    mock_provider.synthesize.assert_any_call("World", NARRATOR_VOICE_ID)
 
 
 # ── ingest ────────────────────────────────────────────────────────────────────

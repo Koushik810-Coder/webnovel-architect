@@ -1,23 +1,17 @@
 import pytest
 import os
-import shutil
 from adapters.graph_adapter import GraphProvider
 
-# Use a temporary directory for testing
 TEST_UUID = "test_causal_edges_story"
-TEST_DIR = os.path.join("data", TEST_UUID)
+
 
 @pytest.fixture(autouse=True)
-def setup_teardown():
-    # Setup: Create fresh testing environment
-    if os.path.exists(TEST_DIR):
-        shutil.rmtree(TEST_DIR)
-
+def isolated_env(tmp_path, monkeypatch):
+    """Redirect all filesystem I/O to a temp dir so the real data/ dir is never touched."""
+    import app.core.story_manager as sm
+    monkeypatch.setattr(sm.StoryManager, "DATA_DIR", str(tmp_path))
+    os.makedirs(os.path.join(str(tmp_path), TEST_UUID), exist_ok=True)
     yield
-
-    # Teardown: Clean up testing environment
-    if os.path.exists(TEST_DIR):
-        shutil.rmtree(TEST_DIR)
 
 def test_add_causal_edge():
     # Arrange

@@ -12,19 +12,19 @@ def test_analyze_text_success():
     mock_response.choices = [MagicMock(message=mock_message)]
     mock_litellm.completion.return_value = mock_response
 
-    with patch.dict('sys.modules', {'litellm': mock_litellm}):
+    with patch("adapters.llm_adapter.litellm", mock_litellm):
         result = analyze_text("This is test text.", "test-model")
         assert result == "Test analysis result"
         mock_litellm.completion.assert_called_once()
         args, kwargs = mock_litellm.completion.call_args
         assert kwargs['model'] == "test-model"
-        assert kwargs['messages'] == [{"role": "user", "content": "This is test text."}]
+        assert kwargs['messages'][-1] == {"role": "user", "content": "This is test text."}
 
 def test_analyze_text_failure():
     mock_litellm = MagicMock()
     mock_litellm.completion.side_effect = Exception("API error")
 
-    with patch.dict('sys.modules', {'litellm': mock_litellm}):
+    with patch("adapters.llm_adapter.litellm", mock_litellm):
         result = analyze_text("This is test text.", "test-model")
         assert result and "All LLM tiers exhausted" in result
 
