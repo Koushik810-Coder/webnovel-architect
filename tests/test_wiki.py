@@ -342,7 +342,7 @@ class TestApplyProfileUpdates:
         assert len(result.timeline) == 2
         assert result.timeline[1]["event"] == "Started walking"
         assert len(base.timeline) == 1  # Base should not be mutated
-        
+
     def test_metadata_and_relationships_applied(self, base):
         """Metadata and relationships from LLM should overwrite base."""
         updates = {
@@ -426,8 +426,6 @@ class TestJsonSidecar:
         from app.services.wiki import get_wiki_dir
 
         # Write only the .md (bypassing the sidecar co-save)
-        ensure_wiki_dir_only(story_id)
-        md_path = os.path.join(get_wiki_dir(story_id), "alice.md")
         save_character_wiki(story_id, full_wiki)  # also writes .json
         json_path = os.path.join(get_wiki_dir(story_id), "alice.json")
         os.remove(json_path)  # simulate pre-migration state: only .md

@@ -328,7 +328,7 @@ class TestNarrationVoiceLookup:
 
         with patch("app.services.wiki.load_character_wiki_json", return_value=wiki_mock):
             from app.services.narration import build_narration_segments
-            segments = build_narration_segments('"Hey!" he shouted.', story_uuid="test_story")
+            build_narration_segments('"Hey!" he shouted.', story_uuid="test_story")
 
         mock_assign.assert_called_once()
 

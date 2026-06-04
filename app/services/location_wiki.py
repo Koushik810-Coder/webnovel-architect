@@ -31,7 +31,7 @@ def save_location_wiki(story_uuid: str, location: LocationWiki):
     path = _json_path(story_uuid, location.location_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(location.model_dump(), f, indent=2, ensure_ascii=False)
-        
+
     md_path = os.path.join(get_location_wiki_dir(story_uuid), f"{location.location_id}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(render_location_wiki(location))
@@ -62,7 +62,7 @@ def list_location_wikis(story_uuid: str) -> List[str]:
 def render_location_wiki(location: LocationWiki) -> str:
     """Renders LocationWiki to Markdown."""
     md = f"# 🗺️ {location.display_name}\n\n"
-    
+
     if location.region or location.significance:
         md += "## 📍 Overview\n"
         if location.region:
@@ -73,7 +73,7 @@ def render_location_wiki(location: LocationWiki) -> str:
 
     md += "## 📖 Description\n"
     md += f"{location.description}\n\n"
-    
+
     md += "## 📜 Timeline\n"
     if location.timeline:
         for t in location.timeline:
@@ -81,13 +81,13 @@ def render_location_wiki(location: LocationWiki) -> str:
     else:
         md += "No timeline recorded.\n"
     md += "\n"
-    
+
     md += "## 👥 Characters Present\n"
     if location.characters_present:
         md += ", ".join(f"`{c}`" for c in location.characters_present) + "\n"
     else:
         md += "None recorded.\n"
-    
+
     return md
 
 # ---------------------------------------------------------------------------
@@ -98,10 +98,10 @@ def build_location_page(story_uuid: str, location_id: str, graph_provider) -> Op
     """Aggregates events at a location and uses LLM to generate a wiki page."""
     import datetime
     from app.services.wiki_versioning import compute_node_hash
-    
+
     existing = load_location_wiki(story_uuid, location_id)
     current_hash = compute_node_hash(graph_provider.graph, location_id)
-    
+
     if existing and existing.graph_snapshot_id == current_hash and current_hash != "":
         logger.info(f"Skipping generation for location '{location_id}' — graph state unchanged.")
         return existing
@@ -111,7 +111,7 @@ def build_location_page(story_uuid: str, location_id: str, graph_provider) -> Op
     characters = set()
     first_chap = float('inf')
     last_chap = 0
-    
+
     for u, data in graph_provider.graph.nodes(data=True):
         if data.get("type") == "event" and data.get("location") == location_id:
             events.append({
@@ -123,7 +123,7 @@ def build_location_page(story_uuid: str, location_id: str, graph_provider) -> Op
             if ch > 0:
                 first_chap = min(first_chap, ch)
                 last_chap = max(last_chap, ch)
-                
+
             # Find characters in this event
             for src, dst, edge_data in graph_provider.graph.edges(u, data=True):
                 if edge_data.get("relation") == "featured":
@@ -135,13 +135,13 @@ def build_location_page(story_uuid: str, location_id: str, graph_provider) -> Op
     if not events:
         logger.warning(f"No events found for location '{location_id}'")
         return None
-        
+
     if first_chap == float('inf'):
         first_chap = 0
 
     # Sort events
     events.sort(key=lambda x: x["chapter_id"])
-    
+
     context_str = json.dumps(events, indent=2)
 
     prompt = f"""
@@ -176,6 +176,6 @@ Return a valid JSON object matching this schema:
         first_appearance_chapter=first_chap,
         last_updated_chapter=last_chap
     )
-    
+
     save_location_wiki(story_uuid, wiki)
     return wiki

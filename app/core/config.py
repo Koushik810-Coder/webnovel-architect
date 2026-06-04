@@ -46,7 +46,7 @@ def get_config() -> Dict[str, Any]:
             return {**_DEFAULTS, **loaded}
         except Exception:
             return dict(_DEFAULTS)
-    
+
     return dict(_DEFAULTS)
 
 

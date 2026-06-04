@@ -23,7 +23,7 @@ def test_analyze_text_success():
 def test_analyze_text_failure():
     mock_litellm = MagicMock()
     mock_litellm.completion.side_effect = Exception("API error")
-    
+
     with patch.dict('sys.modules', {'litellm': mock_litellm}):
         result = analyze_text("This is test text.", "test-model")
         assert result and "All LLM tiers exhausted" in result

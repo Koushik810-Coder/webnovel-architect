@@ -8,11 +8,11 @@ class LocationWiki(BaseModel):
     Aggregated from graph event nodes sharing the same location field.
     """
     location_id: str
-    
+
     version: int = 1
     generated_at: Optional[str] = None
     graph_snapshot_id: Optional[str] = None
-    
+
     display_name: str
     description: str
 

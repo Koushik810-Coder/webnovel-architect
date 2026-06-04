@@ -30,19 +30,19 @@ def check_graduation_status(character: CharacterRuntime, wiki_traits: Optional[D
     Returns True if state changed.
     """
     new_level = evaluate_graduation(character.confidence_score, node_count=node_count)
-    
+
     # We don't store "current level" on Runtime yet, but we can infer or add it.
     # For now, the critical check is voice locking and unlocking.
-    
+
     if new_level == GraduationLevel.MAIN_CAST and character.voice_id is None:
         # GRADUATION EVENT!
         merged_traits = character.vocal_traits.copy()
         if wiki_traits:
             merged_traits.update(wiki_traits)
-            
+
         character.voice_id = assign_voice(character.character_id, merged_traits)
         return True
-        
+
     elif new_level == GraduationLevel.EXTRA and character.voice_id is not None:
         # PROVISIONAL DE-GRADUATION — only when score drops all the way back to EXTRA.
         # EVOLVING characters (score between DELTA_UPPER and MAIN_CAST_THRESHOLD) keep
@@ -50,5 +50,5 @@ def check_graduation_status(character: CharacterRuntime, wiki_traits: Optional[D
         get_registry().release_voice(character.voice_id)
         character.voice_id = None
         return True
-        
+
     return False

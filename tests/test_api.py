@@ -20,7 +20,7 @@ def test_audio_preview(mock_render, mock_build):
     mock_render.return_value = [b"chunk1", b"chunk2"]
 
     response = client.post("/audio/preview", json={"text": "Test"})
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "segments" in data
@@ -34,12 +34,12 @@ def test_create_chapter(mock_ingest):
     mock_chapter = MagicMock()
     mock_chapter.id = 1
     mock_chapter.title = "Chap 1"
-    
+
     # Needs to be dict to serialize easily or we can mock dict return
     mock_ingest.return_value = {"id": 1, "title": "Chap 1"}
-    
+
     response = client.post("/chapters/", json={"title": "Chap 1", "text": "Content"})
-    
+
     assert response.status_code == 200
     assert response.json() == {"id": 1, "title": "Chap 1"}
     mock_ingest.assert_called_once_with("Chap 1", "Content")
@@ -47,13 +47,13 @@ def test_create_chapter(mock_ingest):
 @patch('app.api.characters.create_character')
 def test_create_character(mock_create):
     mock_create.return_value = {"character_id": "hero_id"}
-    
+
     response = client.post("/characters/", json={
         "name": "Hero",
         "short_description": "The chosen one",
         "first_chapter": 1
     })
-    
+
     assert response.status_code == 200
     assert response.json() == {"character_id": "hero_id"}
     mock_create.assert_called_once_with(name="Hero", short_description="The chosen one", first_chapter=1)

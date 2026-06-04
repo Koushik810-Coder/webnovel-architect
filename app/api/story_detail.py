@@ -4,7 +4,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from app.core.story_manager import StoryManager
 from app.services.ingest import load_runtime
-from app.services.wiki import load_character_wiki_json, get_wiki_dir, enrich_wiki_from_rag
+from app.services.wiki import load_character_wiki_json, enrich_wiki_from_rag
 from app.core.graduation import MAIN_CAST_THRESHOLD
 from app.core.logger import get_logger
 
@@ -37,7 +37,7 @@ def list_chapters(story_uuid: str):
             except Exception as e:
                 logger.error(f"Failed to read metadata for chapter {folder}: {e}")
                 raise HTTPException(
-                    status_code=500, 
+                    status_code=500,
                     detail=f"Corrupted chapter data in {folder}: {e}"
                 )
     return result
@@ -75,7 +75,6 @@ def get_cast(story_uuid: str):
         logger.error(f"Failed to load runtime for cast: {e}")
         return []
 
-    wiki_dir = get_wiki_dir(story_uuid)
     result = []
 
     for char_id, char in runtime_db.items():

@@ -6,13 +6,13 @@ class BaseScraper(ABC):
     Abstract base class for novel chapter scrapers.
     Based on the provider pattern from QuickNovel.
     """
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
         """The distinct name of the provider (e.g., 'Royal Road')."""
         pass
-        
+
     @property
     @abstractmethod
     def base_url(self) -> str:

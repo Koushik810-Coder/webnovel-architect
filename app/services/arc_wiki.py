@@ -31,7 +31,7 @@ def save_arc_wiki(story_uuid: str, arc: ArcWiki):
     path = _json_path(story_uuid, arc.arc_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(arc.model_dump(), f, indent=2, ensure_ascii=False)
-        
+
     md_path = os.path.join(get_arc_wiki_dir(story_uuid), f"{arc.arc_id}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(render_arc_wiki(arc))
@@ -62,12 +62,12 @@ def list_arc_wikis(story_uuid: str) -> List[str]:
 def render_arc_wiki(arc: ArcWiki) -> str:
     """Renders ArcWiki to Markdown."""
     md = f"# 🔄 {arc.display_name}\n\n"
-    
+
     md += f"> **Theme:** *{arc.theme}*\n\n"
-    
+
     md += "## 📖 Summary\n"
     md += f"{arc.summary}\n\n"
-    
+
     md += "## 📈 Arc Structure\n"
     md += f"- **Chapters:** {arc.chapter_start} to {arc.chapter_end}\n"
     if arc.start_event_id:
@@ -81,7 +81,7 @@ def render_arc_wiki(arc: ArcWiki) -> str:
     if arc.resolution_event_id:
         md += f"- **Resolution:** `{arc.resolution_event_id}`\n"
     md += "\n"
-    
+
     md += "## 👥 Key Participants\n"
     if arc.participating_characters:
         md += ", ".join(f"`{c}`" for c in arc.participating_characters) + "\n"
@@ -96,7 +96,7 @@ def render_arc_wiki(arc: ArcWiki) -> str:
             md += f"- **Ch. {ev.get('chapter', '?')}:** {ev.get('note', '')}\n"
     else:
         md += "None recorded.\n"
-        
+
     md += "### Thematic Milestones\n"
     if arc.thematic_evolution:
         for ev in arc.thematic_evolution:
@@ -118,20 +118,20 @@ def build_arc_page(story_uuid: str, arc_id: str, graph_provider) -> Optional[Arc
     if not graph_provider.graph.has_node(arc_id) or graph_provider.graph.nodes[arc_id].get("type") != "arc":
         logger.warning(f"Arc '{arc_id}' not found in graph.")
         return None
-        
+
     existing = load_arc_wiki(story_uuid, arc_id)
     current_hash = compute_node_hash(graph_provider.graph, arc_id)
-    
+
     if existing and existing.graph_snapshot_id == current_hash and current_hash != "":
         logger.info(f"Skipping generation for arc '{arc_id}' — graph state unchanged.")
         return existing
 
     arc_data = graph_provider.graph.nodes[arc_id]
     event_ids = arc_data.get("event_ids", [])
-    
+
     events = []
     characters = set()
-    
+
     for ev_id in event_ids:
         if graph_provider.graph.has_node(ev_id):
             ev_data = graph_provider.graph.nodes[ev_id]
@@ -144,7 +144,7 @@ def build_arc_page(story_uuid: str, arc_id: str, graph_provider) -> Optional[Arc
             for u, v, data in graph_provider.graph.in_edges(ev_id, data=True):
                  if graph_provider.graph.nodes[u].get("type") == "character":
                      characters.add(u)
-                     
+
     events.sort(key=lambda x: x["chapter_id"])
     context_str = json.dumps(events, indent=2)
 
@@ -187,6 +187,6 @@ Return a valid JSON object matching this schema. Be analytical about the narrati
         chapter_start=arc_data.get("chapter_start", 0),
         chapter_end=arc_data.get("chapter_end", 0)
     )
-    
+
     save_arc_wiki(story_uuid, wiki)
     return wiki

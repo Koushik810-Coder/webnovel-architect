@@ -10,12 +10,12 @@ class CharacterRuntime(BaseModel):
     character_id: str
 
     confidence_score: float = 0.0
-    
+
     # Story Intelligence Metrics
     dialogue_count: int = 0
     mention_count: int = 0
     network_centrality: float = 0.0
-    
+
     # Voice System
     vocal_traits: Dict[str, str] = {}
     voice_id: Optional[str] = None

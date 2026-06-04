@@ -9,11 +9,11 @@ class EventWiki(BaseModel):
     and narrative vs story-time context — per the 2.5 spec.
     """
     event_id: str
-    
+
     version: int = 1
     generated_at: Optional[str] = None
     graph_snapshot_id: Optional[str] = None
-    
+
     display_name: str
     summary: str
 

@@ -24,9 +24,9 @@ def test_check_graduation_status_no_change():
 
 def test_check_graduation_status_graduates():
     char = CharacterRuntime(
-        character_id="hero", 
-        confidence_score=0.6, 
-        first_seen_chapter=1, 
+        character_id="hero",
+        confidence_score=0.6,
+        first_seen_chapter=1,
         last_seen_chapter=1,
         vocal_traits={"gender": "male"}
     )
@@ -39,17 +39,17 @@ def test_check_graduation_status_with_wiki_traits(mocker):
     # Mock assign_voice to verify traits are passed
     mock_assign = mocker.patch("app.core.graduation.assign_voice", return_value="v1")
     char = CharacterRuntime(
-        character_id="hero", 
-        confidence_score=0.6, 
-        first_seen_chapter=1, 
+        character_id="hero",
+        confidence_score=0.6,
+        first_seen_chapter=1,
         last_seen_chapter=1,
         vocal_traits={"base_pitch": "high"}
     )
     wiki_traits = {"gender": "female", "personality": "bold"}
-    
+
     assert check_graduation_status(char, wiki_traits=wiki_traits)
     assert char.voice_id == "v1"
-    
+
     # Assert assign_voice was called with character_id and the merged traits
     expected_traits = {"base_pitch": "high", "gender": "female", "personality": "bold"}
     mock_assign.assert_called_once_with("hero", expected_traits)

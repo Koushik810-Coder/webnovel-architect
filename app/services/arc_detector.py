@@ -11,10 +11,10 @@ def _call_llm_for_arcs(events_chunk):
     prompt = "Group these events into narrative arcs and provide a label and the list of event IDs for each arc:\n\n"
     for e in events_chunk:
         prompt += f"ID: {e['id']}, Description: {e.get('description', '')}, Location: {e.get('location', '')}\n"
-    
+
     # Simple structured prompt
     prompt += "\nRespond ONLY with a JSON array of objects, each containing 'label' (string) and 'event_ids' (list of strings)."
-    
+
     try:
         result = analyze_text_json(prompt)
         if isinstance(result, list):
@@ -34,25 +34,25 @@ def _call_llm_for_arcs(events_chunk):
 
 def detect_arcs(story_uuid: str, every_n: int = 5):
     graph = get_graph_engine(story_uuid)
-    
+
     # Get all events
     events = [
-        {"id": n, **d} for n, d in graph.graph.nodes(data=True) 
+        {"id": n, **d} for n, d in graph.graph.nodes(data=True)
         if d.get("type") == "event"
     ]
-    
+
     # Sort chronologically
     events.sort(key=lambda x: x.get("chapter_id", 0))
-    
+
     # In a real implementation we might only process the last N chapters,
     # but for simplicity we'll just process everything or the recent ones.
     if not events:
         return []
-        
+
     # Group by location + participant overlap (simplified by passing to LLM)
     # We will pass recent events to LLM
     arcs = _call_llm_for_arcs(events)
-    
+
     for i, arc in enumerate(arcs):
         label = arc.get("label", f"arc_{i}")
         event_ids = arc.get("event_ids", [])
@@ -62,7 +62,7 @@ def detect_arcs(story_uuid: str, every_n: int = 5):
         # rather than creating a brand-new duplicate node every 5 chapters.
         label_slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or f"arc_{i}"
         arc_id = f"arc_{label_slug}"
-        
+
         # Calculate chapter start/end from events
         arc_events = [e for e in events if e["id"] in event_ids]
         if arc_events:
@@ -71,8 +71,8 @@ def detect_arcs(story_uuid: str, every_n: int = 5):
         else:
             chapter_start = 0
             chapter_end = 0
-            
+
         graph.add_arc(arc_id, label, event_ids, chapter_start, chapter_end)
-        
+
     graph.save_graph()
     return arcs

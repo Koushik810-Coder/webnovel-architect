@@ -18,11 +18,11 @@ def _get_story_progress(story_uuid: str) -> Optional[Dict]:
     state = load_index_state(story_uuid)
     if not state:
         return None
-        
+
     chapters = state.get("chapters", [])
     total_available = len(chapters)
     current = state.get("last_ingested_index", -1) + 1
-    
+
     # Read strict status if set
     current_status = state.get("status")
 
@@ -35,10 +35,10 @@ def _get_story_progress(story_uuid: str) -> Optional[Dict]:
             final_status = "failed"
         else:
             final_status = "idle"
-    
+
     return {
         "current": current,
-        "total": current,
+        "total": total_available,
         "total_available": total_available,
         "status": final_status
     }
@@ -49,7 +49,7 @@ def _deduplicate_name(desired_name: str) -> str:
     existing_names = {s["name"] for s in StoryManager.list_stories()}
     if desired_name not in existing_names:
         return desired_name
-    
+
     counter = 2
     while True:
         candidate = f"{desired_name} {counter}"
@@ -76,19 +76,19 @@ def get_story(story_uuid: str):
     if not story:
         logger.warning(f"Story not found: {story_uuid}")
         raise HTTPException(status_code=404, detail="Story not found")
-        
+
     try:
         chapter_count, runtime_db = load_runtime(story_uuid)
     except Exception as e:
         logger.error(f"Failed to load runtime for story {story_uuid}: {e}")
         chapter_count = 0
-        
+
     story["chapter_count"] = chapter_count
-    
+
     state = load_index_state(story_uuid)
     if state and "metadata" in state:
         story["metadata"] = state["metadata"]
-        
+
     story["progress"] = _get_story_progress(story_uuid)
     return story
 
@@ -163,7 +163,7 @@ def _ingest_background(story_uuid: str, chapters_slice: list, start_offset: int)
     batch_count = len(chapters_slice)
     logger.info(f"Background ingest started for story {story_uuid}: "
                 f"{batch_count} chapters starting at index {start_offset}")
-    
+
     def progress_cb(current, total):
         state = load_index_state(story_uuid)
         if state:
@@ -181,16 +181,16 @@ def _ingest_background(story_uuid: str, chapters_slice: list, start_offset: int)
         ingest_multiple_chapters(
             story_uuid,
             chapters_slice,
-            extractor="llm", 
+            extractor="llm",
             decay_rate=0.05,
             progress_callback=progress_cb
         )
-        
+
         state = load_index_state(story_uuid)
         if state:
             state["status"] = "completed"
             save_index_state(story_uuid, state)
-            
+
         logger.info(f"Background ingest completed for story {story_uuid}")
     except Exception as e:
         logger.error(f"Background ingest failed for story {story_uuid}: {e}")
@@ -207,27 +207,27 @@ def ingest_more_chapters(story_uuid: str, payload: IngestMoreRequest, background
     state = load_index_state(story_uuid)
     if not state or "chapters" not in state:
         raise HTTPException(status_code=400, detail="No chapter index found. Import a URL first.")
-    
+
     if state.get("status") == "processing":
         raise HTTPException(status_code=409, detail="Ingestion already in progress.")
-    
+
     all_chapters = state["chapters"]
     next_index = state.get("last_ingested_index", -1) + 1
     remaining = len(all_chapters) - next_index
-    
+
     if remaining <= 0:
         raise HTTPException(status_code=400, detail="All chapters have already been ingested.")
-    
+
     batch_count = min(payload.count, remaining)
     chapters_slice = all_chapters[next_index:next_index + batch_count]
-    
+
     logger.info(f"Ingest more: story {story_uuid}, processing {batch_count} chapters "
                 f"(index {next_index} to {next_index + batch_count - 1})")
-    
+
     # Pre-set status to processing
     state["status"] = "processing"
     save_index_state(story_uuid, state)
-    
+
     background_tasks.add_task(_ingest_background, story_uuid, chapters_slice, next_index)
     return {
         "status": "success",
@@ -249,18 +249,18 @@ def import_royalroad(payload: ImportRequest, background_tasks: BackgroundTasks):
             if not chapters:
                 logger.error(f"No chapters found at URL: {payload.url}")
                 raise HTTPException(status_code=400, detail="No chapters found at URL")
-            
+
             # Use the real fiction title from the page; fallback to chapter-title heuristic
             raw_name = metadata.get("title", "").strip()
             if not raw_name:
                 raw_name = chapters[0]['title'].split(" - ")[0] if " - " in chapters[0]['title'] else "Royal Road Novel"
-            
+
             story_name = _deduplicate_name(raw_name)
             new_uuid = StoryManager.create_story(story_name)
             logger.info(f"Created new story '{story_name}' with UUID {new_uuid}")
-            
+
             initial_batch = min(_DEFAULT_INITIAL_BATCH, len(chapters))
-            
+
             save_index_state(new_uuid, {
                 "source_url": payload.url,
                 "chapters": chapters,
@@ -268,7 +268,7 @@ def import_royalroad(payload: ImportRequest, background_tasks: BackgroundTasks):
                 "last_ingested_index": -1,
                 "status": "processing"
             })
-            
+
             background_tasks.add_task(_ingest_background, new_uuid, chapters[:initial_batch], 0)
             return {
                 "status": "success",

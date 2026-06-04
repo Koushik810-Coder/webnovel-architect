@@ -46,18 +46,18 @@ def load_runtime(story_uuid: str) -> Tuple[int, Dict[str, CharacterRuntime]]:
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "runtime_db.json")
     if not os.path.exists(path):
         return 0, {}
-        
+
     with open(path, "r") as f:
         data = json.load(f)
-        
+
     chapter_counter = data.get("chapter_counter", 0)
     characters_raw = data.get("characters", {})
-    
+
     runtime_db = {}
     for char_id, char_data in characters_raw.items():
         # Reconstruct Pydantic model
         runtime_db[char_id] = CharacterRuntime(**char_data)
-        
+
     return chapter_counter, runtime_db
 
 def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, CharacterRuntime]):
@@ -70,17 +70,17 @@ def save_runtime(story_uuid: str, chapter_counter: int, runtime_db: Dict[str, Ch
         runtime_db (Dict[str, CharacterRuntime]): Dictionary mapping character IDs to their runtime models.
     """
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "runtime_db.json")
-    
+
     data = {
         "chapter_counter": chapter_counter,
         "characters": {k: v.model_dump() for k, v in runtime_db.items()}
     }
-    
+
     tmp_path = pathlib.Path(path).with_suffix(".tmp")
     with open(tmp_path, "w") as f:
         json.dump(data, f, indent=4)
     tmp_path.replace(path)
-        
+
     # Also touch the story updated_at
     StoryManager._touch_updated_at(story_uuid)
 
@@ -94,10 +94,10 @@ def save_chapter(story_uuid: str, chapter: Chapter):
     """
     chapter_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(chapter.id))
     os.makedirs(chapter_dir, exist_ok=True)
-    
+
     with open(os.path.join(chapter_dir, "text.txt"), "w", encoding="utf-8") as f:
         f.write(chapter.raw_text)
-        
+
     metadata = {
         "id": chapter.id,
         "title": chapter.title,
@@ -258,19 +258,19 @@ def _get_previous_chapter_context(story_uuid: str, chapter_id: int, num_paragrap
     """
     if chapter_id <= 0:
         return None
-        
+
     path = os.path.join(StoryManager.DATA_DIR, story_uuid, "chapters", str(chapter_id), "text.txt")
     if not os.path.exists(path):
         return None
-        
+
     try:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
-            
+
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
         if not paragraphs:
             return None
-            
+
         return "\n\n".join(paragraphs[-num_paragraphs:])
     except Exception as e:
         logger.warning(f"Failed to load previous chapter {chapter_id} context: {e}")
@@ -323,14 +323,14 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         if TaskStateManager.get_cancel_reason("ingestion") == "cancel":
             logger.warning(f"Ingestion of '{title}' cancelled by user flag.")
             return None
-    
+
     logger.info(f"Ingesting chapter: '{title}' for story {story_uuid} using extractor '{extractor}'")
-    
+
     # 2. Extract Intelligence FIRST — before committing any state to disk.
     # If extraction fails the chapter_counter is never incremented, so the next
     # attempt will reuse the same chapter slot (no off-by-one drift).
     previous_context = _get_previous_chapter_context(story_uuid, chapter_counter)
-    
+
     if extractor == "llm":
         intelligence = extract_chapter_intelligence_llm(text, previous_context=previous_context)
     else:
@@ -345,10 +345,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         raw_text=text,
         created_at=datetime.now(timezone.utc)
     )
-    
+
     # Save chapter to disk
     save_chapter(story_uuid, chapter)
-    
+
     active_names = intelligence.get("active_character_names", [])
     events = intelligence.get("events", [])
 
@@ -364,14 +364,14 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     existing_char_names = [data.get("display_name", str(node)) for node, data in graph.graph.nodes(data=True) if data.get("type") == "character"]
     all_names = list(set(active_names + existing_char_names))
     _, full_alias_map = resolve_aliases_with_map(all_names)
-    
+
     # Map the isolated active_names for this chapter to their true global canonical names
     original_active_names = active_names
     active_names = list(set([full_alias_map.get(n, n) for n in active_names]))
-    
+
     # We only care about the mapping subset that affects THIS chapter's characters
     alias_map = {k: v for k, v in full_alias_map.items() if k in original_active_names or v in original_active_names}
-    
+
     # A1 FIX: Build _char_event_index AFTER alias resolution, keyed on canonical char_id.
     # The old pre-alias index was keyed on raw LLM names; after alias collapsing the
     # lookup keys didn't match, silently returning empty event lists for every character.
@@ -388,9 +388,9 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         # Look up the newly resolved canonical name, or fall back to the raw name
         canon = full_alias_map.get(raw_name, raw_name)
         predicted_genders[canon] = gender
-    
+
     logger.info(f"Intelligence extracted ({len(active_names)} active characters after alias collapsing). Updating relational graph...")
-    
+
     # 3. Graph Updates
     # Add characters to graph; store aliases on node so RAG entity-matching can find them (A3)
     for name in active_names:
@@ -421,10 +421,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
         for idx, event_data in enumerate(events):
             action_summary = event_data.get("action_summary", "Unknown Event")
             involved_chars = event_data.get("involved_characters", [])
-            
+
             # Map involved_chars using the global full_alias_map
             involved_chars = list(set([full_alias_map.get(n, n) for n in involved_chars]))
-            
+
             # P1 FIX: Accept characters that are active this chapter OR already exist in the graph.
             # The old filter only allowed active_names, silently dropping cross-chapter references
             # (e.g. Achille, Sophie, Andre) and leaving them with zero graph events.
@@ -437,10 +437,10 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 _cid = normalize_id(_n)
                 if _cid in active_char_ids or _cid in all_graph_char_ids:
                     valid_chars.append(_cid)
-            
+
             event_id = f"chapter_{chapter_counter}_event_{idx}"
             event_ids.append(event_id)
-            
+
             if valid_chars:
                 pre_conditions = event_data.get("pre_conditions", "")
                 post_conditions = event_data.get("post_conditions", "")
@@ -508,12 +508,12 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                             chapter_id=chapter_counter,
                             intensity=intensity,
                         )
-        
+
         # Second pass: Process causal links now that all events exist
         for idx, event_data in enumerate(events):
             source_event_id = event_ids[idx]
             causes_indexes = event_data.get("causes_event_indexes", [])
-            
+
             if isinstance(causes_indexes, list):
                 for target_idx in causes_indexes:
                     # Sanity check: Ensure the index is an integer and within valid bounds
@@ -524,13 +524,13 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                             graph.add_causal_edge(source_event_id, target_event_id)
                     except (ValueError, TypeError):
                         logger.warning(f"Invalid causal index '{target_idx}' in event {idx}")
-                        
+
     elif active_names:
         # Fallback to the generic event if no specific events were extracted
         event_id = f"chapter_{chapter_counter}_event"
         description = f"Events of Chapter {chapter_counter}"
         graph.add_event(event_id, description, [normalize_id(n) for n in active_names], chapter_id=chapter_counter)
-    
+
     logger.info("Graph updated. Calculating PageRank and Temporal Runtime Milestones...")
 
     # ── P4: Pre-compute all LLM wiki updates in a SINGLE batch call ──────────
@@ -576,13 +576,13 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
 
     for name in active_names:
         char_id = normalize_id(name)
-        
+
         # B3: Read from cached scores instead of recomputing PageRank
         new_score = _pagerank_cache.get(char_id, 0.0)
-        
+
         # Runtime Update
         predicted_gender = predicted_genders.get(name, "neutral")
-        
+
         if char_id not in runtime_db:
             # ── New Character Discovery ────────────────────────────────────
             runtime_db[char_id] = CharacterRuntime(
@@ -629,7 +629,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
                 logger.info(f"New Character {char.character_id} graduated via DPQ! Assigned Voice: {char.voice_id}")
                 wiki_entry = wiki_entry.model_copy(update={"voice_id": char.voice_id})
                 save_character_wiki(story_uuid, wiki_entry)
-                
+
         else:
             # ── Existing Character Update ──────────────────────────────────
             char = runtime_db[char_id]
@@ -739,7 +739,7 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     # Atomically save all changes to disk
     graph.save_graph()
     save_runtime(story_uuid, chapter_counter, runtime_db)
-    
+
     # ── Generate Location & Event wiki pages from graph data ──────────────
     # These are *enrichment* steps — a failure must not abort the chapter ingest
     # (all graph writes have already been persisted above). Warn and continue.
@@ -784,9 +784,9 @@ def ingest_chapter(story_uuid: str, title: str, text: str, extractor: str = "llm
     return chapter
 
 def ingest_multiple_chapters(
-    story_uuid: str, 
-    chapters: List[Dict[str, str]], 
-    extractor: str = "llm", 
+    story_uuid: str,
+    chapters: List[Dict[str, str]],
+    extractor: str = "llm",
     decay_rate: float = 0.05,
     progress_callback: Optional[Callable] = None
 ) -> List[Chapter]:
@@ -803,20 +803,20 @@ def ingest_multiple_chapters(
     ingested_chapters = []
     total = len(chapters)
     _scraper = None  # lazy-init once if any chapter needs URL scraping
-    
+
     if TaskStateManager.is_cancelled("ingestion"):
         TaskStateManager.clear_cancel("ingestion")
         logger.info("Cleared old cancel_ingestion.flag")
-    
+
     try:
         for i, chap_data in enumerate(chapters):
             if TaskStateManager.is_cancelled("ingestion"):
                 logger.info("Batch ingestion cancelled by user.")
                 break
-                
+
             title = chap_data.get("title", f"Chapter {i+1}")
             text = chap_data.get("text")
-            
+
             if not text:
                 # If text is missing, we might need to scrape it here if a URL is present
                 url = chap_data.get("url")
@@ -836,7 +836,7 @@ def ingest_multiple_chapters(
                     if progress_callback is not None:
                         progress_callback(i + 1, total)
                     continue
-                    
+
             try:
                 chapter = ingest_chapter(story_uuid, title, text, extractor, decay_rate)
                 ingested_chapters.append(chapter)
@@ -848,7 +848,7 @@ def ingest_multiple_chapters(
                 logger.error(f"Failed to ingest chapter '{title}' (stopping batch): {err_msg}")
                 TaskStateManager.cancel_task("ingestion", f"error: {err_msg}")
                 break
-            
+
             if progress_callback is not None:
                 progress_callback(i + 1, total)
     finally:
@@ -857,5 +857,5 @@ def ingest_multiple_chapters(
             if TaskStateManager.get_cancel_reason("ingestion") == "cancel":
                 TaskStateManager.clear_cancel("ingestion")
                 logger.info("Cleared cancel_ingestion.flag on exit")
-    
+
     return ingested_chapters

@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
+import hashlib as _hashlib
 import os
 import asyncio
 import concurrent.futures
 import pathlib
+import shutil as _shutil
 import time
 
 from app.core.logger import get_logger
@@ -137,9 +139,8 @@ class EdgeAdapter(TTSProvider):
             raise
 
 
+
 # 4a. 1.4 Audio generation cache — wraps any TTSProvider
-import hashlib as _hashlib
-import shutil as _shutil
 
 class CachedTTSAdapter(TTSProvider):
     """Wraps any TTSProvider with an on-disk MP3 cache.

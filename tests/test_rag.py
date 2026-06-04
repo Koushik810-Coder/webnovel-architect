@@ -188,7 +188,7 @@ def test_query_story_with_filter(populated_graph, story_uuid):
     assert result == "Mocked projection."
     assert len(call_log) == 1
     prompt = call_log[0]
-    
+
     # We expect Chapter 1 and Chapter 2, but NOT Chapter 3 (because it's "before" the pivot event)
     assert "Zorian begins looping" in prompt
     assert "Zorian meets Kirielle" in prompt

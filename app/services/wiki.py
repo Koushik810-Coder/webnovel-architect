@@ -34,7 +34,8 @@ def apply_profile_updates(base: CharacterWiki, updates: dict) -> CharacterWiki:
     }
 
     def _truthy(v) -> bool:
-        if v is None: return False
+        if v is None:
+            return False
         if isinstance(v, str):
             stripped = v.strip()
             if not stripped:
@@ -43,7 +44,8 @@ def apply_profile_updates(base: CharacterWiki, updates: dict) -> CharacterWiki:
             if stripped.lower() in _PLACEHOLDER_STRINGS:
                 return False
             return True
-        if isinstance(v, list): return len(v) > 0
+        if isinstance(v, list):
+            return len(v) > 0
         return bool(v)
 
     field_map = {
@@ -314,7 +316,7 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
     # Format lists
     affiliations_clean = [a for a in (character.affiliations or []) if a]
     affiliations_html = " ".join([render_pill(a, "rgba(163, 190, 140, 0.15)", "rgba(163, 190, 140, 0.4)") for a in affiliations_clean]) if affiliations_clean else "<i>None</i>"
-    
+
     aliases_clean = [a for a in (character.aliases or []) if a]
     aliases_html = " ".join([render_pill(a, "rgba(180, 142, 173, 0.15)", "rgba(180, 142, 173, 0.4)") for a in aliases_clean]) if aliases_clean else "<i>None</i>"
 
@@ -329,7 +331,7 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
     timeline_str = "No events recorded."
     if character.timeline:
         timeline_str = "\n".join([f"- **Ch. {ev.get('chapter', '?')}**: {ev.get('event', '')}" for ev in character.timeline])
-        
+
     # Relationships formatting
     relationships_str = "No relationships recorded."
     if character.relationships:
@@ -342,7 +344,7 @@ def save_character_wiki(story_uuid: str, character: CharacterWiki):
             relation = str(raw_relation).replace('"', "'")
             mermaid_lines.append(f'    {character.character_id} -->|"{relation}"| {target}')
         mermaid_lines.append("```\n")
-        
+
         rel_list = "\n".join([f"- **{rel.get('target_id') or 'Unknown'}** ({rel.get('relation') or 'Unknown'}): {rel.get('context') or ''}" for rel in character.relationships])
         relationships_str = "\n".join(mermaid_lines) + "\n" + rel_list
 
@@ -462,7 +464,7 @@ def parse_character_wiki(markdown: str) -> dict:
         md_part = "# " + parts[1] if len(parts) > 1 else ""
 
         soup = BeautifulSoup(html_part, "html.parser")
-        
+
         # 1. Parse InfoBox Table Rows
         for tr in soup.find_all("tr"):
             tds = tr.find_all("td")
@@ -470,17 +472,26 @@ def parse_character_wiki(markdown: str) -> dict:
                 key = tds[0].get_text(strip=True).replace(":", "")
                 val = tds[1].get_text(strip=True)
                 if val != "Unknown" and val:
-                    if key == "Status": data["status"] = val
-                    elif key == "Age": data["age"] = val
-                    elif key == "Gender": data["gender"] = val
-                    elif key == "Species": data["species"] = val
-                    elif key == "Role": data["role"] = val
-                    elif key == "Debut": 
-                        try: data["first_appearance_chapter"] = int(val.replace("Chapter", "").strip())
-                        except ValueError: pass
+                    if key == "Status":
+                        data["status"] = val
+                    elif key == "Age":
+                        data["age"] = val
+                    elif key == "Gender":
+                        data["gender"] = val
+                    elif key == "Species":
+                        data["species"] = val
+                    elif key == "Role":
+                        data["role"] = val
+                    elif key == "Debut":
+                        try:
+                            data["first_appearance_chapter"] = int(val.replace("Chapter", "").strip())
+                        except ValueError:
+                            pass
                     elif key == "Latest":
-                        try: data["last_updated_chapter"] = int(val.replace("Chapter", "").strip())
-                        except ValueError: pass
+                        try:
+                            data["last_updated_chapter"] = int(val.replace("Chapter", "").strip())
+                        except ValueError:
+                            pass
 
         # 2. Parse Affiliations and Aliases
         for b in soup.find_all("b"):
@@ -503,8 +514,10 @@ def parse_character_wiki(markdown: str) -> dict:
             footer_text = footer_soup.get_text(separator=" ")
             conf_match = re.search(r"Confidence:\s*([0-9.]+)", footer_text)
             if conf_match:
-                try: data["confidence"] = float(conf_match.group(1))
-                except ValueError: pass
+                try:
+                    data["confidence"] = float(conf_match.group(1))
+                except ValueError:
+                    pass
             voice_match = re.search(r"TTS Voice:\s*(\S+)", footer_text)
             if voice_match:
                 v = voice_match.group(1).strip()
@@ -515,7 +528,7 @@ def parse_character_wiki(markdown: str) -> dict:
         name_match = re.search(r"^# ✨ (.+)$", md_part, flags=re.MULTILINE)
         if not name_match:
             name_match = re.search(r"^# (.+)$", md_part, flags=re.MULTILINE)
-        if name_match: 
+        if name_match:
             data["display_name"] = name_match.group(1).strip()
 
         short_desc_match = re.search(r"^> \*(.*?)\*", md_part, flags=re.MULTILINE)
@@ -525,7 +538,7 @@ def parse_character_wiki(markdown: str) -> dict:
         SECTION_END = r"(?=\n## |\n<br|\n---|\n<div)"
 
         synopsis_match = re.search(r"## (?:📖 )?Synopsis\n(.*?)" + SECTION_END, md_part, flags=re.DOTALL)
-        if synopsis_match: 
+        if synopsis_match:
             val = synopsis_match.group(1).strip()
             if "Detailed history not yet available" not in val:
                 data["synopsis"] = val
@@ -540,8 +553,8 @@ def parse_character_wiki(markdown: str) -> dict:
         if traits_match:
             lines = traits_match.group(1).strip().split("\n")
             cleaned = [
-                l.lstrip("- ").strip() for l in lines
-                if l.strip() and "Personality details" not in l
+                line.lstrip("- ").strip() for line in lines
+                if line.strip() and "Personality details" not in line
             ]
             if cleaned:
                 data["personality_traits"] = cleaned
@@ -550,15 +563,15 @@ def parse_character_wiki(markdown: str) -> dict:
         if quirks_match:
             lines = quirks_match.group(1).strip().split("\n")
             cleaned = [
-                l.lstrip("- ").strip() for l in lines
-                if l.strip() and "notable quirks documented" not in l
+                line.lstrip("- ").strip() for line in lines
+                if line.strip() and "notable quirks documented" not in line
             ]
             if cleaned:
                 data["notable_quirks"] = cleaned
 
     except Exception as e:
         logger.error(f"Error parsing legacy wiki markdown: {e}")
-        
+
     return data
 
 # ---------------------------------------------------------------------------
@@ -838,7 +851,7 @@ def _enrich_from_text_mentions(
 
 
 def enrich_wiki_from_rag(
-    story_uuid: str, 
+    story_uuid: str,
     character_id: str,
     mode: str = "god",
     reader_chapter: int = 999,
@@ -861,19 +874,19 @@ def enrich_wiki_from_rag(
     # Check cache via graph snapshot hash
     graph_provider = get_graph_engine(story_uuid)
     current_hash = compute_node_hash(graph_provider.graph, character_id)
-    
+
     if existing.graph_snapshot_id == current_hash and current_hash != "":
         logger.info(f"Skipping RAG enrichment for '{character_id}' — graph neighborhood unchanged.")
         return existing
 
     character_name = existing.display_name
     logger.info(f"RAG-enriching wiki for '{character_name}' ({character_id})…")
-    
+
     existing_json_str = existing.model_dump_json(indent=2)
     profile_data = query_character_profile(
-        story_uuid, 
-        character_id, 
-        character_name, 
+        story_uuid,
+        character_id,
+        character_name,
         existing_wiki_json=existing_json_str,
         mode=mode,
         reader_chapter=reader_chapter,
@@ -893,12 +906,12 @@ def enrich_wiki_from_rag(
             return None
 
     enriched = apply_profile_updates(existing, profile_data)
-    
+
     # Update versioning meta
     enriched.version = existing.version + 1
     enriched.graph_snapshot_id = current_hash
     enriched.generated_at = datetime.datetime.now(datetime.UTC).isoformat()
-    
+
     save_character_wiki(story_uuid, enriched)
     logger.info(f"Wiki enriched and saved for '{character_name}'.")
     return enriched
@@ -925,7 +938,7 @@ def enrich_all_wikis_from_rag(
             continue
         character_id = filename[:-5]  # strip .json
         result = enrich_wiki_from_rag(
-            story_uuid, 
+            story_uuid,
             character_id,
             mode=mode,
             reader_chapter=reader_chapter,

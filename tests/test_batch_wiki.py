@@ -80,7 +80,7 @@ class TestBatchUpdateCharacterProfiles:
         """If the batch LLM call raises, sequential fallback handles all chars."""
         with patch("app.services.wiki.analyze_text_json", side_effect=Exception("timeout")):
             with patch("app.services.wiki._sequential_fallback", return_value={"ariane": GOOD_PROFILE}) as mock_seq:
-                result = batch_update_character_profiles(PAYLOAD)
+                batch_update_character_profiles(PAYLOAD)
         mock_seq.assert_called_once()
 
     def test_partial_batch_falls_back_only_for_missing(self):
@@ -112,7 +112,7 @@ class TestBatchUpdateCharacterProfiles:
         }
         with patch("app.services.wiki.analyze_text_json", return_value=bad_result):
             with patch("app.services.wiki._sequential_fallback", return_value={"master_vael": GOOD_PROFILE}) as mock_seq:
-                result = batch_update_character_profiles(PAYLOAD)
+                batch_update_character_profiles(PAYLOAD)
         mock_seq.assert_called_once()
 
 

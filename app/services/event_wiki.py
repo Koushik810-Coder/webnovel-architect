@@ -31,7 +31,7 @@ def save_event_wiki(story_uuid: str, event: EventWiki):
     path = _json_path(story_uuid, event.event_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(event.model_dump(), f, indent=2, ensure_ascii=False)
-        
+
     md_path = os.path.join(get_event_wiki_dir(story_uuid), f"{event.event_id}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(render_event_wiki(event))
@@ -62,9 +62,9 @@ def list_event_wikis(story_uuid: str) -> List[str]:
 def render_event_wiki(event: EventWiki) -> str:
     """Renders EventWiki to Markdown."""
     md = f"# ⚡ {event.display_name}\n\n"
-    
+
     md += f"> *{event.summary}*\n\n"
-    
+
     md += "## ⏱️ Context\n"
     md += f"- **Chapter:** {event.chapter_id}\n"
     if event.story_time_rank is not None:
@@ -72,7 +72,7 @@ def render_event_wiki(event: EventWiki) -> str:
     if event.arc_id:
         md += f"- **Arc:** `{event.arc_id}`\n"
     md += "\n"
-    
+
     md += "## 🎭 Participants\n"
     if event.participants:
         for p in event.participants:
@@ -86,7 +86,7 @@ def render_event_wiki(event: EventWiki) -> str:
     md += "## 🔗 Causal Chain\n"
     if event.cause:
         md += f"**Cause:** {event.cause}\n\n"
-    
+
     if event.pre_conditions or event.post_conditions:
         md += "**Conditions:**\n"
         if event.pre_conditions:
@@ -94,20 +94,20 @@ def render_event_wiki(event: EventWiki) -> str:
         if event.post_conditions:
             md += f"- Post: {event.post_conditions}\n"
         md += "\n"
-        
+
     if event.consequences:
         md += "**Consequences:**\n"
         for c in event.consequences:
             md += f"- {c}\n"
         md += "\n"
-        
+
     if event.after_events:
         md += "**Leads to:** " + ", ".join(f"`{e}`" for e in event.after_events) + "\n\n"
-        
+
     md += "## 🛡️ Meta\n"
     md += f"- **Canonical:** {'Yes' if event.is_canonical else 'No'}\n"
     md += f"- **Spoiler Level:** {event.spoiler_level}\n"
-    
+
     return md
 
 # ---------------------------------------------------------------------------
@@ -122,33 +122,33 @@ def build_event_page(story_uuid: str, event_id: str, graph_provider) -> Optional
     if not graph_provider.graph.has_node(event_id) or graph_provider.graph.nodes[event_id].get("type") != "event":
         logger.warning(f"Event '{event_id}' not found in graph.")
         return None
-        
+
     existing = load_event_wiki(story_uuid, event_id)
     current_hash = compute_node_hash(graph_provider.graph, event_id)
-    
+
     if existing and existing.graph_snapshot_id == current_hash and current_hash != "":
         logger.info(f"Skipping generation for event '{event_id}' — graph state unchanged.")
         return existing
 
     event_data = graph_provider.graph.nodes[event_id]
-    
+
     # Gather participants and roles from edges
     participants = []
     for u, v, data in graph_provider.graph.in_edges(event_id, data=True):
         if graph_provider.graph.nodes[u].get("type") == "character":
             participants.append({"character_id": u, "role": data.get("role", "participant")})
-            
+
     # Gather causal chain
     before_events = []
     for u, v, data in graph_provider.graph.in_edges(event_id, data=True):
         if data.get("relation") == "causes":
             before_events.append(u)
-            
+
     after_events = []
     for u, v, data in graph_provider.graph.out_edges(event_id, data=True):
         if data.get("relation") == "causes":
             after_events.append(v)
-            
+
     # Gather arc
     arc_id = None
     for u, v, data in graph_provider.graph.in_edges(event_id, data=True):
@@ -164,7 +164,7 @@ def build_event_page(story_uuid: str, event_id: str, graph_provider) -> Optional
         "participants": participants,
         "location": event_data.get("location", ""),
     }
-    
+
     context_str = json.dumps(context, indent=2)
 
     prompt = f"""
@@ -209,6 +209,6 @@ Return a valid JSON object matching this schema. Preserve the participant roles 
         is_canonical=event_data.get("is_canonical", True),
         confidence=event_data.get("confidence", 1.0)
     )
-    
+
     save_event_wiki(story_uuid, wiki)
     return wiki

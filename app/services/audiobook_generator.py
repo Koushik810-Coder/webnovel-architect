@@ -81,7 +81,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     """
 
     # Local voice assignments scoped to this specific audiobook generation run
-    # to prevent cross-story voice contamination. 
+    # to prevent cross-story voice contamination.
     _voice_assignments_session: dict = {}
     _male_idx_session = [0]
     _female_idx_session = [0]
@@ -123,20 +123,20 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
             text_chunks = [chapter_text]
 
         full_script = []
-        
+
         for idx, chunk in enumerate(text_chunks):
             logger.info(f"Extracting script from chunk {idx+1}/{len(text_chunks)} via deterministic parser...")
-            
+
             blocks = parse_chapter_to_script_blocks(chunk)
             # Resolve dialogue speakers using the LLM against the surrounding narration
             logger.info(f"Resolving dialogue speakers for chunk {idx+1}/{len(text_chunks)} via LLM...")
             resolved_blocks = resolve_dialogue_speakers(blocks)
-            
+
             for b in resolved_blocks:
                 speaker = getattr(b, "speaker", None)
                 if speaker is None:
                     speaker = "Narrator"
-                
+
                 full_script.append({
                     "speaker": speaker,
                     "text": b.text
@@ -193,7 +193,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
             else:
                 _voice_assignments_session[speaker] = MALE_VOICES[_male_idx_session[0] % len(MALE_VOICES)]
                 _male_idx_session[0] += 1
-                
+
         return _voice_assignments_session[speaker]
 
     # ── 4. Synthesize Audio Chunks ────────────────────────────────────────
@@ -201,10 +201,10 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     os.makedirs(output_dir, exist_ok=True)
 
     chunk_files = []
-    
+
     # Per-chunk VTT files are generated and collected in order. After synthesis,
     # timestamps are offset by cumulative ffprobe duration and merged into one VTT.
-    
+
 
     def get_audio_duration(file_path):
         """Returns audio duration in seconds using ffprobe."""
@@ -222,29 +222,29 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
     def offset_vtt_timestamps(vtt_text: str, offset_seconds: float) -> str:
         """Adds offset_seconds to all timestamps in a VTT block."""
         import re
-        
+
         def add_seconds(time_str, offset):
             # Parse HH:MM:SS.mmm
             parts = time_str.split(':')
             h, m = int(parts[0]), int(parts[1])
             s, ms = [int(x) for x in parts[2].split('.')]
-            
+
             total_seconds = (h * 3600) + (m * 60) + s + (ms / 1000.0) + offset
-            
+
             new_h = int(total_seconds // 3600)
             total_seconds %= 3600
             new_m = int(total_seconds // 60)
             total_seconds %= 60
             new_s = int(total_seconds)
             new_ms = int(round((total_seconds - new_s) * 1000))
-            
+
             return f"{new_h:02d}:{new_m:02d}:{new_s:02d}.{new_ms:03d}"
 
         def replace_match(match):
             start = add_seconds(match.group(1), offset_seconds)
             end = add_seconds(match.group(2), offset_seconds)
             return f"{start} --> {end}"
-            
+
         return re.sub(r'(\d{2}:\d{2}:\d{2}\.\d{3})\s-->\s(\d{2}:\d{2}:\d{2}\.\d{3})', replace_match, vtt_text)
 
     chunk_vtts = []
@@ -253,10 +253,10 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         if TaskStateManager.is_cancelled("audio"):
             logger.info("Cancellation requested.")
             return None
-            
+
         speaker = segment.get("speaker", "Narrator")
         text = segment.get("text", "").strip()
-        
+
         # Strip unpronounceable characters before deciding if empty
         stripped_text = re.sub(r'[^\w\s]', '', text).strip()
         if not stripped_text:
@@ -269,7 +269,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         vtt_chunk_path = os.path.join(output_dir, f"{i:04d}_{safe_speaker}.vtt")
 
         logger.debug(f"[{i+1}/{len(script)}] {speaker} ({voice}): {text[:40]}...")
-        
+
 
         def _synthesize_kokoro(t, v, p, p_vtt):
             tts_engine_obj.generate_audio(t, v, p)
@@ -288,7 +288,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
                     _synthesize_kokoro(text, voice, chunk_path, vtt_chunk_path)
                 else:
                     _run_async(_synthesize_edge_tts(text, voice, chunk_path, vtt_chunk_path))
-                
+
                 # Verify the file was actually created
                 if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 0:
                     chunk_files.append(chunk_path)
@@ -306,7 +306,7 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
                     logger.warning(f"Audio generation skipped for chunk {i+1} after {max_retries} attempts due to engine error: {e}")
                 else:
                     time.sleep(2 * (attempt + 1))
-        
+
         # Gentle rate limiting between API calls (not needed for offline engines)
         if engine != "kokoro":
             time.sleep(0.5)
@@ -341,16 +341,16 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
         if result.returncode != 0:
             logger.error(f"FFmpeg stderr:\n{result.stderr}")
             return None
-            
+
         logger.info(f"Audio compilation successful: {final_audio_path}")
-        
+
         # Compile VTTs
         logger.info("Compiling VTT Subtitles...")
         cumulative_duration = 0.0
-        
+
         with open(final_vtt_path, "w", encoding="utf-8") as f_out:
             f_out.write("WEBVTT\n\n")
-            
+
             for chunk_file, vtt_text in zip(chunk_files, chunk_vtts):
                 # Clean up the payload: Strip any WEBVTT headers and any SRT integer cue IDs
                 vtt_body_lines = []
@@ -359,20 +359,20 @@ def generate_chapter_audiobook(story_uuid: str, chapter_id: int, engine: str = "
                     if stripped == "WEBVTT" or stripped.isdigit():
                         continue
                     vtt_body_lines.append(line)
-                    
+
                 vtt_body = "\n".join(vtt_body_lines).strip()
                 if vtt_body:
                     offset_body = offset_vtt_timestamps(vtt_body, cumulative_duration)
                     f_out.write(offset_body + "\n\n")
-                    
+
                 # Calculate duration of the chunk to offset the next one
                 dur = get_audio_duration(chunk_file)
                 cumulative_duration += dur
-                
+
         logger.info(f"VTT compilation successful: {final_vtt_path}")
 
         return final_audio_path, final_vtt_path
-        
+
     except subprocess.TimeoutExpired:
         logger.error("FFmpeg audio compilation timed out after 300 seconds.")
         return None

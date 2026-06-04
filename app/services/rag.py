@@ -10,8 +10,8 @@ from typing import Optional, List
 logger = get_logger(__name__)
 
 def query_story(
-    story_uuid: str, 
-    query: str, 
+    story_uuid: str,
+    query: str,
     model: str = None,
     mode: str = "god",
     reader_chapter: int = 999,
@@ -35,35 +35,35 @@ def query_story(
         # Just grab the last 2 interactions to give the LLM some context
         recent = chat_history[-4:]
         history_context = "Recent conversation context:\n" + "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent]) + "\n\n"
-        
+
     intent_prompt = f"{history_context}Extract the core entities from this new query:\n'{query}'\nRespond ONLY with a JSON object containing arrays for 'characters', 'locations', and 'concepts'."
     try:
         intent = analyze_text_json(intent_prompt, model=model) or {}
     except Exception:
         intent = {}
-        
+
     query_locations = set(intent.get("locations", []))
 
     # 1b. Deterministic Entity Extraction from Query
     query_entities = set()
     query_lower = query.lower()
-    
+
     char_nodes = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "character"]
-    
+
     for n, d in char_nodes:
         names_to_check = [n.lower()]
         if "display_name" in d:
             names_to_check.append(d["display_name"].lower())
         if "aliases" in d and isinstance(d["aliases"], list):
             names_to_check.extend([a.lower() for a in d["aliases"]])
-            
+
         for name in names_to_check:
             # Word boundary check to prevent partial substring matches
             pattern = r'\b' + re.escape(name) + r'\b'
             if re.search(pattern, query_lower):
                 query_entities.add(n)
                 break
-                
+
     # Also attempt to extract entities from intent if the deterministic check missed them
     for char_name in intent.get("characters", []):
         for n, d in char_nodes:
@@ -73,10 +73,10 @@ def query_story(
     # 2. Graph Retrieval
     # Pre-calculate the whitelist of visible events for the current mode/context
     visible_event_ids = set(get_filtered_events(story_uuid, mode, reader_chapter, pov_character_id))
-    
+
     retrieved_events = []
     seen_events = set()
-    
+
     # 2a. Specific Entity Retrieval
     for entity_id in query_entities:
         if graph.graph.has_node(entity_id):
@@ -85,7 +85,7 @@ def query_story(
                     seen_events.add(event_id)
                     event_data = graph.graph.nodes[event_id]
                     involved = [k for k, v in graph.graph.in_edges(event_id) if graph.graph.nodes[k].get("type") == "character"]
-                    
+
                     retrieved_events.append({
                         "chapter_id": event_data.get("chapter_id", 0),
                         "description": event_data.get("description", ""),
@@ -94,7 +94,7 @@ def query_story(
                         "location": event_data.get("location", "Unknown"),
                         "participants": [p.replace("_", " ").title() for p in involved]
                     })
-                    
+
     # 2b. Location/Scene Retrieval
     scene_nodes = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "scene"]
     for loc in query_locations:
@@ -119,15 +119,15 @@ def query_story(
     # 2c. General Question Fallback Retrieval (Token Preserving)
     if not retrieved_events:
         logger.info("No specific entities found in query. Falling back to the 15 most recent global events.")
-        
+
         all_events = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "event"]
         if not all_events:
             return "The story graph is currently empty. Please process some chapters first before asking general questions."
-            
+
         # Sort by chapter_id globally
         all_events.sort(key=lambda x: x[1].get("chapter_id", 0), reverse=True)
         recent_events = [e for e in all_events if e[0] in visible_event_ids][:15]
-        
+
         for event_id, event_data in recent_events:
             if event_id not in seen_events:
                 seen_events.add(event_id)
@@ -147,7 +147,7 @@ def query_story(
     # 3. Time-CoT Ordering
     # Sort chronologically by chapter_id
     retrieved_events.sort(key=lambda x: x["chapter_id"])
-    
+
     # 4. Construct Prompt
     timeline_str = "Story Timeline (Chronological Context):\n"
     for ev in retrieved_events:
@@ -157,7 +157,7 @@ def query_story(
         post = ev['post_conditions']
         loc = ev['location']
         parts = ", ".join(ev['participants'])
-        
+
         timeline_str += f"""
 --- Chapter {chap} ---
 Location: {loc}
@@ -195,10 +195,10 @@ Reason through the context chronologically and then provide a clear, narrative a
 
 
 def query_character_profile(
-    story_uuid: str, 
-    character_id: str, 
-    character_name: str, 
-    model: str = None, 
+    story_uuid: str,
+    character_id: str,
+    character_name: str,
+    model: str = None,
     existing_wiki_json: str = None,
     mode: str = "god",
     reader_chapter: int = 999,
@@ -334,14 +334,14 @@ EXTRACTION RULES:
         profile = analyze_text_json(prompt, model=model)
         if profile is None or (isinstance(profile, dict) and profile.get("error")):
             raise ValueError(f"LLM returned empty or malformed JSON for {character_name}.")
-            
+
         if profile and mode == "reader":
             # Apply spoiler rewrite to the narrative fields
             if "short_description" in profile:
                 profile["short_description"] = rewrite_for_spoiler_free(profile["short_description"])
             if "synopsis" in profile:
                 profile["synopsis"] = rewrite_for_spoiler_free(profile["synopsis"])
-        
+
         logger.info(f"RAG enrichment produced profile for '{character_name}' from {len(retrieved_events)} events.")
         return profile
     except Exception as e:
@@ -349,8 +349,8 @@ EXTRACTION RULES:
         raise ValueError(f"RAG enrichment failed for '{character_name}': {e}") from e
 
 def query_story_with_filter(
-    story_uuid: str, 
-    nl_query: str, 
+    story_uuid: str,
+    nl_query: str,
     model: str = None,
     mode: str = "god",
     reader_chapter: int = 999,
@@ -392,7 +392,7 @@ Respond ONLY with valid JSON.
         intent = {}
 
     target_characters = [c.lower() for c in intent.get("target_characters", [])]
-    target_locations = [l.lower() for l in intent.get("target_locations", [])]
+    target_locations = [loc.lower() for loc in intent.get("target_locations", [])]
     target_arcs = [a.lower() for a in intent.get("target_arcs", [])]
     time_bound = intent.get("time_bound", {})
     pov_char_intent = intent.get("pov_character")
@@ -400,14 +400,15 @@ Respond ONLY with valid JSON.
 
     # Override POV if the query explicitly requested a perspective
     effective_pov = pov_char_intent.lower() if pov_char_intent else pov_character_id
-    
+
     # We must match the effective_pov to a real node ID if it's a string
     effective_pov_id = None
     if effective_pov:
         for n, d in graph.graph.nodes(data=True):
             if d.get("type") == "character":
                 names = [n.lower()]
-                if "display_name" in d: names.append(d["display_name"].lower())
+                if "display_name" in d:
+                    names.append(d["display_name"].lower())
                 if effective_pov in names or effective_pov in n.lower():
                     effective_pov_id = n
                     break
@@ -415,9 +416,9 @@ Respond ONLY with valid JSON.
             effective_pov_id = pov_character_id # fallback
 
     visible_event_ids = set(get_filtered_events(story_uuid, mode, reader_chapter, effective_pov_id))
-    
+
     all_events = [(n, d) for n, d in graph.graph.nodes(data=True) if d.get("type") == "event" and n in visible_event_ids]
-    
+
     # 2. Find Time Pivot
     pivot_rank = None
     if time_bound and time_bound.get("operator") and time_bound.get("event_concept"):
@@ -435,26 +436,29 @@ Respond ONLY with valid JSON.
 
     # 3. Filter Events
     filtered_events = []
-    
+
     char_nodes_lower = {n: [n.lower(), d.get("display_name", "").lower()] for n, d in graph.graph.nodes(data=True) if d.get("type") == "character"}
-    
+
     for event_id, event_data in all_events:
         # Check hidden only
         if hidden_only:
             if event_data.get("is_canonical", True) and event_data.get("spoiler_level", 0) == 0:
                 continue
-                
+
         # Check time bounds
         if pivot_rank is not None:
             ev_rank = event_data.get("story_time_rank", event_data.get("chapter_id", 0))
             op = time_bound["operator"]
-            if op == "before" and ev_rank >= pivot_rank: continue
-            if op == "after" and ev_rank <= pivot_rank: continue
-            if op == "during" and ev_rank != pivot_rank: continue
+            if op == "before" and ev_rank >= pivot_rank:
+                continue
+            if op == "after" and ev_rank <= pivot_rank:
+                continue
+            if op == "during" and ev_rank != pivot_rank:
+                continue
 
         # Check entity inclusion (Characters, Locations, Arcs)
         keep = False
-        
+
         # If no specific targets, we keep it (unless it was filtered out by time/hidden)
         if not target_characters and not target_locations and not target_arcs:
             keep = True
@@ -465,12 +469,12 @@ Respond ONLY with valid JSON.
                 involved_lower = []
                 for inv in involved:
                     involved_lower.extend(char_nodes_lower.get(inv, [inv.lower()]))
-                
+
                 for tc in target_characters:
                     if any(tc in il for il in involved_lower):
                         keep = True
                         break
-            
+
             # Locations
             if not keep and target_locations:
                 loc = event_data.get("location", "").lower()
@@ -478,7 +482,7 @@ Respond ONLY with valid JSON.
                     if tl in loc:
                         keep = True
                         break
-            
+
             # Arcs (check if event is in the specified arc)
             if not keep and target_arcs:
                 for u, v, edata in graph.graph.in_edges(event_id, data=True):
@@ -503,7 +507,7 @@ Respond ONLY with valid JSON.
 
     # 4. Generate Projection
     filtered_events.sort(key=lambda x: x["chapter_id"])
-    
+
     timeline_str = ""
     for ev in filtered_events:
         timeline_str += f"- [Ch {ev['chapter_id']}] At {ev['location']} with {', '.join(ev['participants'])}: {ev['description']}\n"

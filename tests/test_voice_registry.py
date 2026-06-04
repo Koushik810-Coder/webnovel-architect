@@ -72,8 +72,8 @@ def test_allocated_voice_is_reserved(registry):
 
 def test_all_male_voices_allocated(registry):
     """Exhaust male pool — third request must fall back to another gender or neutral."""
-    v1 = registry.get_voice_id(character_id="char1", gender="male")
-    v2 = registry.get_voice_id(character_id="char2", gender="male")
+    registry.get_voice_id(character_id="char1", gender="male")
+    registry.get_voice_id(character_id="char2", gender="male")
     # Pool exhausted — fallback
     v3 = registry.get_voice_id(character_id="char3", gender="male")
     assert v3 is not None  # Must not crash

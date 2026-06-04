@@ -22,7 +22,7 @@ import sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 
-from scripts.mos_eval_ui import discover_audio_clips, save_mos_rating, load_mos_results
+from scripts.mos_eval_ui import discover_audio_clips, save_mos_rating, load_mos_results  # noqa: E402
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ class TestSaveMosRating:
         save_mos_rating(csv_path, clip="clip_a.mp3", naturalness=3, distinctiveness=3, fatigue=2)
         save_mos_rating(csv_path, clip="clip_b.mp3", naturalness=4, distinctiveness=4, fatigue=1)
         with open(csv_path, newline="") as f:
-            lines = [l for l in f if l.strip()]
+            lines = [line for line in f if line.strip()]
         # Should be: 1 header + 2 data rows = 3 lines
         assert len(lines) == 3
 

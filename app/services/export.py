@@ -14,7 +14,7 @@ def get_audio_files(story_uuid: str) -> List[Tuple[int, str, str]]:
     audio_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "generated_audio")
     if not os.path.exists(audio_dir):
         return []
-        
+
     chapters = []
     pattern = re.compile(r"^chapter_(\d+)_full\.mp3$")
     for f in os.listdir(audio_dir):
@@ -25,7 +25,7 @@ def get_audio_files(story_uuid: str) -> List[Tuple[int, str, str]]:
             vtt_path = os.path.join(audio_dir, f"chapter_{chap_id}_full.vtt")
             if os.path.exists(vtt_path):
                 chapters.append((chap_id, mp3_path, vtt_path))
-    
+
     return sorted(chapters, key=lambda x: x[0])
 
 def export_audiobook_zip(story_uuid: str) -> str:
@@ -33,16 +33,16 @@ def export_audiobook_zip(story_uuid: str) -> str:
     files = get_audio_files(story_uuid)
     if not files:
         raise ValueError(f"No generated audio found for story {story_uuid}")
-        
+
     export_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "export")
     os.makedirs(export_dir, exist_ok=True)
     zip_path = os.path.join(export_dir, f"audiobook_{story_uuid}_raw.zip")
-    
+
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for chap_id, mp3, vtt in files:
             zf.write(mp3, os.path.basename(mp3))
             zf.write(vtt, os.path.basename(vtt))
-            
+
     logger.info(f"Raw audiobook ZIP exported to: {zip_path}")
     return zip_path
 
@@ -51,11 +51,11 @@ def export_audiobook_html(story_uuid: str) -> str:
     files = get_audio_files(story_uuid)
     if not files:
         raise ValueError(f"No generated audio found for story {story_uuid}")
-        
+
     export_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "export")
     os.makedirs(export_dir, exist_ok=True)
     zip_path = os.path.join(export_dir, f"audiobook_{story_uuid}_web.zip")
-    
+
     html_content = """<!DOCTYPE html>
 <html>
 <head>
@@ -82,7 +82,7 @@ def export_audiobook_html(story_uuid: str) -> str:
         </audio>
         <ul class="playlist" id="playlist">
 """
-    
+
     for chap_id, mp3, vtt in files:
         html_content += f'            <li data-mp3="audio/{os.path.basename(mp3)}" data-vtt="audio/{os.path.basename(vtt)}">Chapter {chap_id}</li>\n'
     html_content += """        </ul>
@@ -129,7 +129,7 @@ def export_audiobook_html(story_uuid: str) -> str:
         for _, mp3, vtt in files:
             zf.write(mp3, f"audio/{os.path.basename(mp3)}")
             zf.write(vtt, f"audio/{os.path.basename(vtt)}")
-            
+
     logger.info(f"Web player audiobook ZIP exported to: {zip_path}")
     return zip_path
 
@@ -142,24 +142,24 @@ def export_single_audiobook(story_uuid: str) -> Tuple[str, str]:
     files = get_audio_files(story_uuid)
     if not files:
         raise ValueError(f"No generated audio found for story {story_uuid}")
-        
+
     export_dir = os.path.join(StoryManager.DATA_DIR, story_uuid, "export")
     os.makedirs(export_dir, exist_ok=True)
-    
+
     final_audio = os.path.join(export_dir, f"audiobook_{story_uuid}_full.mp3")
     final_vtt = os.path.join(export_dir, f"audiobook_{story_uuid}_full.vtt")
-    
+
     # Check if ffmpeg is available
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found on system PATH. Required for single audiobook export.")
-        
+
     concat_list_path = os.path.join(export_dir, "concat_list.txt")
     with open(concat_list_path, "w", encoding="utf-8") as f:
         for _, mp3, _ in files:
             # Escape path for ffmpeg concat demuxer
             safe_path = mp3.replace("\\\\", "/").replace("'", "'\\\\''")
             f.write(f"file '{safe_path}'\\n")
-            
+
     logger.info("Running FFmpeg to concatenate chapters...")
     try:
         subprocess.run([
@@ -171,9 +171,9 @@ def export_single_audiobook(story_uuid: str) -> Tuple[str, str]:
     finally:
         if os.path.exists(concat_list_path):
             os.remove(concat_list_path)
-            
+
     logger.info(f"Single audiobook compiled to: {final_audio}")
-    
+
     # We could also compile VTTs here, but for simplicity we'll just stitch audio for now.
     # To offset timestamps, we'd need ffprobe to get exact duration of each chapter.
     return final_audio, final_vtt

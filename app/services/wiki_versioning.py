@@ -14,7 +14,7 @@ def compute_node_hash(graph: nx.DiGraph, node_id: str) -> str:
     if graph.has_node(node_id):
         # 1. Node's own attributes
         node_data = dict(graph.nodes[node_id])
-        
+
         # 2. In-edges and source node info
         in_edges = []
         for u, v, data in graph.in_edges(node_id, data=True):
@@ -23,7 +23,7 @@ def compute_node_hash(graph: nx.DiGraph, node_id: str) -> str:
                 "edge_data": data,
                 "source_type": graph.nodes[u].get("type", "")
             })
-            
+
         # 3. Out-edges and target node info
         out_edges = []
         for u, v, data in graph.out_edges(node_id, data=True):
@@ -32,10 +32,10 @@ def compute_node_hash(graph: nx.DiGraph, node_id: str) -> str:
                 "edge_data": data,
                 "target_type": graph.nodes[v].get("type", "")
             })
-            
+
         in_edges.sort(key=lambda x: json.dumps(x, sort_keys=True))
         out_edges.sort(key=lambda x: json.dumps(x, sort_keys=True))
-        
+
         state_dict = {
             "node_id": node_id,
             "node_data": node_data,
@@ -48,15 +48,15 @@ def compute_node_hash(graph: nx.DiGraph, node_id: str) -> str:
         for u, data in graph.nodes(data=True):
             if data.get("type") == "event" and data.get("location") == node_id:
                 events_at_location.append({"id": u, "data": data})
-        
+
         if not events_at_location:
             return ""
-            
+
         events_at_location.sort(key=lambda x: json.dumps(x, sort_keys=True))
         state_dict = {
             "location_id": node_id,
             "events": events_at_location
         }
-        
+
     state_json = json.dumps(state_dict, sort_keys=True)
     return hashlib.sha256(state_json.encode("utf-8")).hexdigest()

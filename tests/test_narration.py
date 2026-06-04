@@ -1,4 +1,8 @@
+from unittest.mock import patch
+
 from app.services.narration import parse_chapter_to_script_blocks, DialogueBlock, NarrationBlock
+from app.services.narration import resolve_dialogue_speakers
+
 
 class TestDeterministicScriptParser:
     def test_parses_pure_narration(self):
@@ -35,8 +39,6 @@ class TestDeterministicScriptParser:
         assert isinstance(blocks[0], DialogueBlock)
         assert blocks[0].text == "Hello."
 
-from unittest.mock import patch
-from app.services.narration import resolve_dialogue_speakers
 
 class TestResolveDialogueSpeakers:
     @patch('app.services.narration.analyze_text_json')
@@ -48,26 +50,26 @@ class TestResolveDialogueSpeakers:
                 "1": "Ilsa"
             }
         }
-        
+
         blocks = [
             NarrationBlock(text="Zorian sighed."),
             DialogueBlock(text="This is ridiculous."),
             NarrationBlock(text="Ilsa crossed her arms."),
             DialogueBlock(text="I agree.")
         ]
-        
+
         resolved_blocks = resolve_dialogue_speakers(blocks)
-        
+
         # Verify the dialogue blocks have their speaker assigned
         assert resolved_blocks[1].speaker == "Zorian"
         assert resolved_blocks[3].speaker == "Ilsa"
-        
+
         # Verify the mock was called with a prompt containing the quotes
         assert mock_analyze.called
         prompt = mock_analyze.call_args[0][0]
         assert "This is ridiculous." in prompt
         assert "I agree." in prompt
-        
+
     def test_handles_no_dialogue_blocks(self):
         blocks = [NarrationBlock(text="Just some narration.")]
         resolved_blocks = resolve_dialogue_speakers(blocks)
@@ -86,8 +88,8 @@ class TestResolveDialogueSpeakers:
             DialogueBlock(text="This is ridiculous."),
             DialogueBlock(text="I agree.")
         ]
-        
+
         resolved_blocks = resolve_dialogue_speakers(blocks)
-        
+
         assert resolved_blocks[0].speaker == "Zorian"
         assert resolved_blocks[1].speaker == "Narrator"  # Default fallback due to missing key

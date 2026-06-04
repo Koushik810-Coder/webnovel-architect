@@ -77,7 +77,7 @@ def test_list_stories_returns_all():
 
 def test_list_stories_sorted_by_updated_at():
     """Most recently updated story must appear first."""
-    uuid_a = StoryManager.create_story("Old Novel")
+    StoryManager.create_story("Old Novel")
     uuid_b = StoryManager.create_story("New Novel")
     stories = StoryManager.list_stories()
     # uuid_b was created last, so its updated_at is later

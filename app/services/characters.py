@@ -28,7 +28,7 @@ def create_character(
 
     chapter_count, runtime_db = load_runtime(story_uuid)
     runtime_db[character_id] = runtime
-    
+
     save_character_wiki(story_uuid, wiki)
     save_runtime(story_uuid, chapter_count, runtime_db)
 

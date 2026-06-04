@@ -10,12 +10,12 @@ class GraphProvider:
     def __init__(self, story_uuid: str):
         self.story_uuid = story_uuid
         self.graph = nx.DiGraph()
-        
+
         # Ensure directory exists before setting save path
         from app.core.story_manager import StoryManager
         story_dir = os.path.join(StoryManager.DATA_DIR, story_uuid)
         os.makedirs(story_dir, exist_ok=True)
-        
+
         self.save_path = os.path.join(story_dir, "story_graph.json")
         self.load_graph()
 
@@ -130,8 +130,8 @@ class GraphProvider:
     def add_arc(self, arc_id: str, label: str, event_ids: list, chapter_start: int, chapter_end: int):
         """Adds an arc node grouping several events."""
         self.graph.add_node(
-            arc_id, 
-            type="arc", 
+            arc_id,
+            type="arc",
             label=label,
             event_ids=event_ids,
             chapter_start=chapter_start,
@@ -231,7 +231,7 @@ class GraphProvider:
         """Returns a chronological list of all events a character participated in."""
         if not self.graph.has_node(name):
             return []
-            
+
         events = []
         for u, v, data in self.graph.out_edges(name, data=True):
             # Check the destination node is an event node (not another character).
@@ -246,7 +246,7 @@ class GraphProvider:
                     "description": event_data.get("description", ""),
                     "chapter_id": event_data.get("chapter_id", 0)
                 })
-                    
+
         # Sort chronologically by chapter_id
         events.sort(key=lambda x: x["chapter_id"])
         return events
@@ -258,11 +258,11 @@ class GraphProvider:
         """
         if not self.graph.has_node(start_event_id) or self.graph.nodes[start_event_id].get("type") != "event":
             return []
-            
+
         chain = []
         current = start_event_id
         depth = 0
-        
+
         while current and depth < max_depth:
             # Add current event to chain
             event_data = self.graph.nodes[current]
@@ -271,7 +271,7 @@ class GraphProvider:
                 "description": event_data.get("description", ""),
                 "chapter_id": event_data.get("chapter_id", 0)
             })
-            
+
             # Find the next event caused by this one
             next_event = None
             for u, v, data in self.graph.out_edges(current, data=True):
@@ -280,10 +280,10 @@ class GraphProvider:
                     if not any(e["id"] == v for e in chain):
                         next_event = v
                         break # Only following the first causal link for this simple chain extraction
-                        
+
             current = next_event
             depth += 1
-            
+
         return chain
 
     def get_debut_prominence(self, name: str, debut_chapter_id: int) -> float:
@@ -421,11 +421,11 @@ class GraphProvider:
         """
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id):
             return
-            
+
         # Target inherits any "newer" last_seen_chapter from the source
         src_data = self.graph.nodes[source_id]
         tgt_data = self.graph.nodes[target_id]
-        
+
         if "last_seen_chapter" in src_data and "last_seen_chapter" in tgt_data:
             tgt_data["last_seen_chapter"] = max(src_data["last_seen_chapter"], tgt_data["last_seen_chapter"])
 

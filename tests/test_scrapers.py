@@ -47,7 +47,7 @@ def test_royal_road_scrape_index(mock_get):
 @patch('requests.get')
 def test_royal_road_scraper_extraction(mock_get):
     scraper = RoyalRoadScraper()
-    
+
     mock_response = MagicMock()
     mock_response.text = """
     <html>
@@ -62,9 +62,9 @@ def test_royal_road_scraper_extraction(mock_get):
     """
     mock_response.raise_for_status.return_value = None
     mock_get.return_value = mock_response
-    
+
     result = scraper.scrape_chapter("https://www.royalroad.com/fiction/1/a/chapter/2/b")
-    
+
     assert result["title"] == "Chapter 1: The Test"
     assert "paragraph 1." in result["text"]
     assert "paragraph 2." in result["text"]
@@ -82,7 +82,7 @@ def test_epub_parser():
             </rootfiles>
         </container>
         ''')
-        
+
         # content.opf
         zf.writestr('OEBPS/content.opf', '''
         <?xml version="1.0"?>
@@ -95,7 +95,7 @@ def test_epub_parser():
             </spine>
         </package>
         ''')
-        
+
         # chap1.html
         zf.writestr('OEBPS/chap1.html', '''
         <html>
@@ -106,11 +106,11 @@ def test_epub_parser():
             </body>
         </html>
         ''')
-        
+
     out.seek(0)
     parser = EpubParser()
     chapters = parser.parse_epub(out.read())
-    
+
     assert len(chapters) == 1
     assert "Chapter 1: Test Chapter" in chapters[0]["title"]
     assert "This is dummy content." in chapters[0]["text"]
